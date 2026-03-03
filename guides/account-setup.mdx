@@ -1,0 +1,101 @@
+---
+title: Account Setup
+description: Create your Ave account with passwordless authentication using passkeys
+---
+
+Ave uses passkeys instead of passwords to keep your account secure. During registration, you'll create your identity, set up a passkey, and configure recovery methods.
+
+## Creating Your Account
+
+<Steps>
+  <Step title="Start Registration">
+    Navigate to the registration page and begin creating your account.
+  </Step>
+
+  <Step title="Create Your Identity">
+    Fill in your profile information:
+    
+    - **Handle**: A unique username (3-32 characters, letters, numbers, and underscores only)
+    - **Display Name**: Your full name or preferred display name
+    - **Email**: Optional, for notifications and recovery
+    - **Birthday**: Optional
+    - **Avatar**: Optional profile picture
+    
+    Click **Continue** when ready.
+  </Step>
+
+  <Step title="Set Up Your Passkey">
+    Click **Set up passkey** to create your passwordless authentication method.
+    
+    Your browser will prompt you to:
+    - Use Touch ID, Face ID, or Windows Hello (biometric authentication)
+    - Or use your device PIN as an alternative
+    
+    <Note>
+      Your passkey is stored securely on your device and cannot be accessed by Ave or anyone else. It uses WebAuthn technology built into modern browsers and operating systems.
+    </Note>
+    
+    When you see the authentication prompt, verify your identity using your preferred method. Ave will generate a master encryption key in your browser that never leaves your device.
+  </Step>
+
+  <Step title="Set Up Recovery Options">
+    To protect your account if you lose access to your passkey, Ave provides recovery methods.
+    
+    ### Trust Codes
+    
+    You'll receive 2 trust codes in the format: `XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`
+    
+    <Warning>
+      Save these trust codes in a secure location immediately. You'll need them if you lose access to your passkey.
+      
+      - Store them in a password manager
+      - Write them down and keep them in a safe place
+      - Never share them with anyone
+    </Warning>
+    
+    Check the box confirming you've saved your trust codes, then click **Continue**.
+    
+    Trust codes encrypt a backup of your master encryption key, allowing you to recover your account on a new device.
+  </Step>
+
+  <Step title="Complete Registration">
+    Your account is now ready! You'll be automatically logged in and can start using Ave.
+    
+    You'll see your Dashboard with access to:
+    - Your profile and identity information
+    - Device management
+    - Security settings
+    - Activity log
+  </Step>
+</Steps>
+
+## What Happens Behind the Scenes
+
+Ave uses end-to-end encryption (E2EE) to protect your data:
+
+1. **Master Key Generation**: A unique encryption key is generated in your browser using cryptographically secure random numbers
+2. **Passkey Creation**: Your device creates a passkey using WebAuthn that's tied to your biometric or device PIN
+3. **Trust Code Encryption**: Your master key is encrypted with your trust codes so you can recover it later
+4. **Secure Storage**: Only encrypted data is sent to Ave's servers - your master key never leaves your device in plaintext
+
+<Note>
+  Ave cannot access your master encryption key or decrypt your data. Only you have the keys to your encrypted information.
+</Note>
+
+## Handle Requirements
+
+Your handle is your unique identifier on Ave:
+
+- Must be 3-32 characters long
+- Can only contain letters (a-z, A-Z), numbers (0-9), and underscores (_)
+- Must be unique across all Ave users
+- Case-insensitive (saved as lowercase)
+
+## Next Steps
+
+Now that your account is set up:
+
+- [Learn how to manage your passkeys](/guides/passkey-management)
+- [Set up additional trusted devices](/guides/device-management)
+- [Configure security settings](/guides/security-settings)
+- [Understand account recovery options](/guides/account-recovery)

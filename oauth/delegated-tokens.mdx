@@ -1,0 +1,425 @@
+---
+title: 'Delegated Tokens (App-to-App)'
+description: 'Enable secure app-to-app delegation using RFC 8693 token exchange'
+---
+
+## Overview
+
+Ave supports app-to-app delegation using the **Token Exchange** grant type defined in [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693). This allows your app to call another app's API on behalf of a user, enabling secure integration between Ave-connected applications.
+
+## Use Cases
+
+- **Integration platforms** - Connect multiple user services
+- **Data synchronization** - Sync user data across apps
+- **Workflow automation** - Trigger actions in other apps
+- **Background processing** - Process user data when user is offline
+
+## How It Works
+
+<Steps>
+  <Step title="User grants delegation permission">
+    The user authorizes your app to access another app's API on their behalf. This creates a **delegation grant**.
+  </Step>
+  
+  <Step title="Your app exchanges tokens">
+    Your app exchanges its access token for a **delegated access token** specific to the target app's API.
+  </Step>
+  
+  <Step title="Call target API">
+    Use the delegated token to call the target app's API with the appropriate audience and scopes.
+  </Step>
+</Steps>
+
+## Delegation Grant Flow
+
+### Step 1: Request Delegation Permission
+
+Build a connector authorization URL to request access to another app's resource:
+
+```typescript
+import { buildConnectorUrl } from 'ave-sdk';
+
+const connectorUrl = buildConnectorUrl(
+  {
+    clientId: 'your_client_id',
+    redirectUri: 'https://yourapp.com/callback'
+  },
+  {
+    resource: 'target-app-resource-key',  // Target app's resource identifier
+    scope: 'read:data write:data',        // Requested permissions
+    mode: 'user_present',                 // or 'background'
+    state: 'random_state_value'
+  }
+);
+
+// Redirect user to grant delegation
+window.location.href = connectorUrl;
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `resource` | string | The target app's resource key |
+| `scope` | string | Space-separated scopes to request |
+| `mode` | string | `user_present` or `background` communication mode |
+| `state` | string | CSRF protection token |
+
+**Communication Modes:**
+
+- `user_present` - Delegated calls require user to be actively using your app
+- `background` - Delegated calls can happen when user is offline (if target app allows)
+
+### Step 2: Handle Callback
+
+After the user grants permission, Ave redirects back with an authorization code:
+
+```typescript
+const urlParams = new URLSearchParams(window.location.search);
+const code = urlParams.get('code');
+const state = urlParams.get('state');
+
+// Verify state
+if (state !== expectedState) {
+  throw new Error('State mismatch');
+}
+
+// Exchange code for tokens (includes delegation grant)
+const tokens = await exchangeCode(config, {
+  code,
+  codeVerifier: storedVerifier
+});
+```
+
+## Token Exchange for Delegation
+
+Exchange your access token for a delegated token to call the target app's API.
+
+### Endpoint
+
+```
+POST https://api.aveid.net/api/oauth/token
+Content-Type: application/json
+```
+
+### Request
+
+```json
+{
+  "grantType": "urn:ietf:params:oauth:grant-type:token-exchange",
+  "subjectToken": "your_access_token",
+  "requestedResource": "target-app-resource-key",
+  "requestedScope": "read:data write:data",
+  "clientId": "your_client_id",
+  "clientSecret": "your_secret",  // Optional
+  "actor": {                       // Optional: actor claims
+    "app_version": "1.0.0",
+    "device_id": "device-123"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIs...",  // JWT delegated token
+  "token_type": "Bearer",
+  "expires_in": 600,                          // 10 minutes
+  "scope": "read:data write:data",
+  "audience": "https://api.targetapp.com",
+  "target_resource": "target-app-resource-key",
+  "communication_mode": "user_present"
+}
+```
+
+### SDK Usage
+
+```typescript
+import { exchangeDelegatedToken } from 'ave-sdk';
+
+const delegatedToken = await exchangeDelegatedToken(
+  {
+    clientId: 'your_client_id'
+  },
+  {
+    subjectToken: yourAccessToken,
+    requestedResource: 'target-app-resource-key',
+    requestedScope: 'read:data write:data',
+    actor: {
+      app_version: '1.0.0',
+      request_id: 'req-123'
+    }
+  }
+);
+
+// Use delegated token to call target API
+const response = await fetch('https://api.targetapp.com/user/data', {
+  headers: {
+    'Authorization': `Bearer ${delegatedToken.access_token}`
+  }
+});
+```
+
+## Delegated Token Structure
+
+Delegated tokens are always JWTs with the following claims:
+
+```json
+{
+  "iss": "https://aveid.net",
+  "sub": "identity-uuid",
+  "aud": "https://api.targetapp.com",
+  "exp": 1234567890,
+  "iat": 1234567890,
+  "sid": "user-uuid",
+  "cid": "source-app-client-id",
+  "scope": "read:data write:data",
+  "grant_id": "delegation-grant-uuid",
+  "target_resource": "target-app-resource-key",
+  "com_mode": "user_present",
+  "actor": {
+    "app_version": "1.0.0"
+  }
+}
+```
+
+| Claim | Description |
+|-------|-------------|
+| `iss` | Issuer (https://aveid.net) |
+| `sub` | Identity ID of the user |
+| `aud` | Target app's API audience |
+| `exp` | Expiration (10 minutes from issuance) |
+| `iat` | Issued at timestamp |
+| `sid` | User session/user ID |
+| `cid` | Your app's client ID (source) |
+| `scope` | Granted scopes for target resource |
+| `grant_id` | Delegation grant ID |
+| `target_resource` | Target resource identifier |
+| `com_mode` | Communication mode (user_present/background) |
+| `actor` | Optional actor claims you provided |
+
+## Managing Delegation Grants
+
+### List User's Delegations
+
+Retrieve all delegation grants for the authenticated user:
+
+```typescript
+import { listDelegations } from 'ave-sdk';
+
+const delegations = await listDelegations(
+  { issuer: 'https://aveid.net' },
+  userSessionToken
+);
+
+delegations.forEach(grant => {
+  console.log('Source App:', grant.sourceAppName);
+  console.log('Target Resource:', grant.targetResourceName);
+  console.log('Scopes:', grant.scope);
+  console.log('Mode:', grant.communicationMode);
+  console.log('Created:', grant.createdAt);
+  console.log('Revoked:', grant.revokedAt);
+});
+```
+
+**DelegationGrant Interface:**
+
+```typescript
+interface DelegationGrant {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  revokedAt?: string | null;
+  communicationMode: "user_present" | "background";
+  scope: string;
+  sourceAppClientId: string;
+  sourceAppName: string;
+  sourceAppIconUrl?: string;
+  sourceAppWebsiteUrl?: string;
+  targetResourceKey: string;
+  targetResourceName: string;
+  targetAudience: string;
+}
+```
+
+### Revoke Delegation Grant
+
+Users can revoke delegation grants at any time:
+
+```typescript
+import { revokeDelegation } from 'ave-sdk';
+
+await revokeDelegation(
+  { issuer: 'https://aveid.net' },
+  userSessionToken,
+  delegationId
+);
+```
+
+After revocation:
+- All delegated tokens issued from this grant are immediately invalid
+- Your app can no longer exchange tokens for this resource
+- The user must re-authorize to restore access
+
+## Security Considerations
+
+<AccordionGroup>
+  <Accordion title="Short-lived delegated tokens">
+    Delegated tokens expire after **10 minutes** and cannot be refreshed. Your app must exchange tokens each time it needs to call the target API. This limits the window of exposure if a token is compromised.
+  </Accordion>
+  
+  <Accordion title="Audit logging">
+    All delegation operations are logged:
+    - Grant creation
+    - Token exchanges
+    - Grant revocation
+    
+    These logs are available for security monitoring and compliance.
+  </Accordion>
+  
+  <Accordion title="Scope validation">
+    Ave validates that:
+    - Requested scopes are available on the target resource
+    - Requested scopes don't exceed the delegation grant's scopes
+    - The delegation grant is active (not revoked)
+  </Accordion>
+  
+  <Accordion title="Actor claims">
+    Use the `actor` parameter to include additional context in delegated tokens:
+    
+    ```typescript
+    actor: {
+      app_version: '1.0.0',
+      request_id: 'req-123',
+      user_action: 'sync_data',
+      ip_address: '192.0.2.1'
+    }
+    ```
+    
+    Target APIs can use actor claims for:
+    - Rate limiting per source app
+    - Auditing specific user actions
+    - Debugging and tracing requests
+  </Accordion>
+</AccordionGroup>
+
+## Error Handling
+
+| Error | Description | Resolution |
+|-------|-------------|------------|
+| `invalid_grant` | Subject token is invalid | Ensure you're using a valid access token |
+| `invalid_target` | Resource not found | Verify the resource key is correct |
+| `invalid_scope` | Scope not allowed or exceeds grant | Check resource's available scopes |
+| `access_denied` | No delegation grant found | User must authorize delegation first |
+| `invalid_client` | Client authentication failed | Verify clientId is correct |
+
+## Best Practices
+
+<Steps>
+  <Step title="Cache delegated tokens">
+    Delegated tokens are valid for 10 minutes. Cache them to avoid excessive token exchanges:
+    
+    ```typescript
+    const tokenCache = new Map();
+    
+    async function getDelegatedToken(resource, scope) {
+      const cacheKey = `${resource}:${scope}`;
+      const cached = tokenCache.get(cacheKey);
+      
+      if (cached && cached.expiresAt > Date.now()) {
+        return cached.token;
+      }
+      
+      const result = await exchangeDelegatedToken(config, {
+        subjectToken: currentAccessToken,
+        requestedResource: resource,
+        requestedScope: scope
+      });
+      
+      tokenCache.set(cacheKey, {
+        token: result.access_token,
+        expiresAt: Date.now() + (result.expires_in * 1000) - 60000  // 1 min buffer
+      });
+      
+      return result.access_token;
+    }
+    ```
+  </Step>
+  
+  <Step title="Request minimal scopes">
+    Only request the scopes your app actually needs. Users are more likely to grant narrow permissions.
+  </Step>
+  
+  <Step title="Handle revocation gracefully">
+    Delegation grants can be revoked at any time. Handle `access_denied` errors by prompting the user to re-authorize:
+    
+    ```typescript
+    try {
+      const token = await exchangeDelegatedToken(config, params);
+      return token;
+    } catch (error) {
+      if (error.message.includes('access_denied')) {
+        // Delegation was revoked - redirect to re-authorize
+        const reAuthUrl = buildConnectorUrl(config, {
+          resource: params.requestedResource,
+          scope: params.requestedScope,
+          mode: 'user_present'
+        });
+        window.location.href = reAuthUrl;
+      }
+      throw error;
+    }
+    ```
+  </Step>
+  
+  <Step title="Use meaningful actor claims">
+    Include context that helps the target API understand the request:
+    
+    ```typescript
+    const delegatedToken = await exchangeDelegatedToken(config, {
+      subjectToken: token,
+      requestedResource: 'calendar-api',
+      requestedScope: 'read:events',
+      actor: {
+        feature: 'event_reminder',
+        user_timezone: 'America/New_York',
+        trigger: 'scheduled_job'
+      }
+    });
+    ```
+  </Step>
+</Steps>
+
+## Resource Discovery
+
+Apps can query information about available resources:
+
+### Get Resource by Key
+
+```typescript
+const response = await fetch(
+  `https://api.aveid.net/api/oauth/resource/${resourceKey}`
+);
+
+const { resource } = await response.json();
+
+console.log(resource.resourceKey);      // "calendar-api"
+console.log(resource.displayName);      // "Calendar API"
+console.log(resource.description);      // "Access user calendar data"
+console.log(resource.scopes);           // ["read:events", "write:events"]
+console.log(resource.audience);         // "https://api.calendar.com"
+console.log(resource.ownerAppName);     // "Calendar App"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="OAuth Scopes" icon="list" href="/oauth/scopes">
+    Learn about standard OAuth scopes
+  </Card>
+  
+  <Card title="Getting Started" icon="rocket" href="/oauth/getting-started">
+    Back to OAuth overview
+  </Card>
+</CardGroup>

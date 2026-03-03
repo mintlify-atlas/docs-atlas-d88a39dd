@@ -1,0 +1,276 @@
+---
+title: Trust Codes
+description: Generate and use trust codes for account recovery in Ave
+---
+
+## Overview
+
+Trust codes are recovery keys that provide emergency access to your account when you lose access to your passkeys or devices. Each trust code can decrypt your master key backup, allowing you to regain access to your encrypted data.
+
+## What Are Trust Codes?
+
+Trust codes are 25-character codes formatted as `XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`. They are:
+
+- **Reusable**: Unlike many recovery codes, Ave trust codes can be used multiple times
+- **Limited quantity**: You receive 2 trust codes per account by default
+- **Encrypted storage**: Only hashed versions are stored on the server
+- **Master key access**: Each code can decrypt your encrypted master key backup
+
+<Warning>
+Trust codes provide full access to your account and encrypted data. Store them securely offline - treat them like passwords.
+</Warning>
+
+## Trust Code Format
+
+Trust codes use a human-readable format:
+
+- **5 segments** of 5 characters each
+- Separated by hyphens: `XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`
+- Characters exclude confusing symbols (no 0, O, I, or 1)
+- Case-insensitive when entering
+- Whitespace and separators are ignored during verification
+
+See: `ave-server/src/lib/crypto.ts:17-33`
+
+## When You Receive Trust Codes
+
+### During Registration
+
+When you create your Ave account, you'll receive 2 trust codes after setting up security questions:
+
+1. Complete identity creation
+2. Set up your first passkey
+3. Answer 3 security questions (now deprecated)
+4. **Save your 2 trust codes** - displayed once
+5. Check the confirmation box to proceed
+
+See: `TESTING.md:57-63`
+
+### After Regeneration
+
+You can regenerate trust codes from the Security dashboard. This will:
+
+- Invalidate all existing trust codes
+- Generate 2 new codes
+- Re-encrypt your master key backup with the new codes
+- Display the new codes once (save them immediately)
+
+See: `ave-server/src/routes/security.ts:399-428`
+
+## Using Trust Codes
+
+### For Full Account Recovery
+
+If you lose access to all your passkeys and devices:
+
+1. Go to the login page
+2. Enter your handle
+3. Click **"Use a trust code"**
+4. Enter one of your trust codes
+5. Complete device information
+6. You'll be logged in with access to your encrypted data
+
+The trust code decrypts your master key backup client-side, restoring full access.
+
+See: `ave-server/src/routes/login.ts:517-659`
+
+### For Master Key Recovery
+
+If you're logged in via passkey but don't have the master key locally (e.g., new device without PRF support):
+
+1. System will prompt for master key recovery
+2. Enter a trust code when prompted
+3. Your master key backup is decrypted client-side
+4. Master key is stored locally for future use
+
+See: `ave-server/src/routes/login.ts:663-739`
+
+## How Trust Codes Work
+
+### Generation Process
+
+```typescript
+// Server-side: Generate random trust code
+const code = generateTrustCode(); // e.g., "A3K9L-QW7R2-N5M8P-..."
+const hash = hashTrustCode(code);  // SHA-256 hash for storage
+
+// Store only the hash
+await db.insert(trustCodes).values({
+  userId: user.id,
+  codeHash: hash,
+});
+```
+
+See: `ave-server/src/routes/security.ts:407-413`
+
+### Verification Process
+
+```typescript
+// When user enters trust code
+const normalized = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
+const inputHash = createHash("sha256").update(normalized).digest("hex");
+
+// Compare against stored hash
+const matches = inputHash === storedHash;
+```
+
+See: `ave-server/src/lib/crypto.ts:36-45`
+
+### Master Key Decryption
+
+1. User enters trust code
+2. Server verifies the hash matches
+3. Server returns encrypted master key backup
+4. **Client-side**: Trust code derives decryption key
+5. **Client-side**: Master key is decrypted and stored locally
+
+<Note>
+The trust code itself is never stored on the server. Only a SHA-256 hash is persisted. The actual decryption happens entirely client-side.
+</Note>
+
+## Security Properties
+
+### What's Protected
+
+- **Hash-only storage**: Server stores `SHA-256(normalized_code)`, not plaintext
+- **Client-side decryption**: Master key decryption never happens on server
+- **Normalization**: Uppercase, strip separators to prevent timing attacks
+- **Reusable design**: No single-use limitation reduces lockout risk
+
+See: `ave-server/src/lib/crypto.ts:36-40`
+
+### Activity Logging
+
+Trust code usage is logged as a **warning-level** event:
+
+```json
+{
+  "action": "login",
+  "details": {
+    "method": "trust_code",
+    "deviceName": "Chrome on Mac",
+    "isNewDevice": true
+  },
+  "severity": "warning"
+}
+```
+
+Failed attempts are also logged:
+
+```json
+{
+  "action": "trust_code_failed",
+  "details": {
+    "reason": "invalid_code",
+    "trustCodesCount": 2
+  },
+  "severity": "warning"
+}
+```
+
+See: `ave-server/src/routes/login.ts:616-624` and `ave-server/src/routes/login.ts:573-580`
+
+## Regenerating Trust Codes
+
+### From the Dashboard
+
+1. Navigate to **Dashboard → Security**
+2. View current trust code count
+3. Click **"Regenerate trust codes"**
+4. Confirm the warning (old codes will be invalidated)
+5. Save the 2 new codes immediately
+
+See: `TESTING.md:384-387`
+
+### API Endpoint
+
+```http
+POST /api/security/trust-codes/regenerate
+Authorization: Bearer <session_token>
+```
+
+**Response:**
+```json
+{
+  "codes": [
+    "A3K9L-QW7R2-N5M8P-T4X6Z-H2J5N",
+    "B7M3Q-P9K4W-R8L2C-V5N7Y-F3G6D"
+  ]
+}
+```
+
+<Warning>
+Regeneration immediately invalidates all previous trust codes. Save the new codes before closing the page.
+</Warning>
+
+See: `ave-server/src/routes/security.ts:399-428`
+
+## Best Practices
+
+### Storage Recommendations
+
+1. **Write them down physically** - Store in a safe or lockbox
+2. **Use a password manager** - Encrypted vault with family sharing
+3. **Separate locations** - Keep the 2 codes in different secure places
+4. **Never email or text** - Avoid digital transmission unless encrypted
+
+### When to Regenerate
+
+- **Compromised storage**: If your code storage may be exposed
+- **Shared accidentally**: If you showed a code to someone unintentionally
+- **Regular rotation**: Consider annual regeneration for high-security accounts
+- **Before major changes**: When changing primary email or security setup
+
+### Recovery Planning
+
+- **Test recovery flow**: Verify you can actually use a trust code
+- **Document location**: Note where each code is stored (without storing the code itself)
+- **Backup plan**: Have multiple recovery methods (passkeys + trust codes)
+- **Trusted contact**: Consider secure sharing with a family member or executor
+
+## Troubleshooting
+
+### "Invalid trust code" Error
+
+**Possible causes:**
+
+1. **Typo in code** - Trust codes are case-insensitive, but characters must match
+2. **Code already regenerated** - Old codes are invalidated when new ones are created
+3. **No codes registered** - Account may not have trust codes set up
+
+See: `ave-server/src/routes/login.ts:570-584`
+
+**Solution:**
+
+- Double-check each character
+- Hyphens are optional when entering
+- If all codes fail, use device approval or contact support
+
+### "No trust codes found" Error
+
+This means no trust codes are registered for your account.
+
+**Solution:**
+
+1. Log in using a passkey or device approval
+2. Go to Dashboard → Security
+3. Click "Regenerate trust codes"
+4. Save the new codes securely
+
+See: `ave-server/src/routes/login.ts:552-557`
+
+### Trust Code Not Working After Login
+
+If logged in but master key decryption fails:
+
+1. Ensure you're entering the same code used during registration
+2. Check that `encryptedMasterKeyBackup` exists in your user record
+3. Verify client-side decryption logic is working (check browser console)
+
+See: `TESTING.md:507-511`
+
+## Related Topics
+
+- [Recovery Methods](/security/recovery-methods) - Alternative account recovery options
+- [Session Management](/security/session-management) - Understanding session security
+- [Best Practices](/security/best-practices) - Comprehensive security guidance

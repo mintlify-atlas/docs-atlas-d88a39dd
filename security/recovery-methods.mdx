@@ -1,0 +1,398 @@
+---
+title: Account Recovery Methods
+description: Learn about all available account recovery options in Ave
+---
+
+## Overview
+
+Ave provides multiple recovery methods to ensure you never lose access to your account, even if you lose a device or passkey. Each method balances security with convenience.
+
+## Available Recovery Methods
+
+Ave supports three primary recovery methods:
+
+1. **Passkey Authentication** - Standard login with biometrics/PIN
+2. **Trust Codes** - Emergency recovery with 25-character codes
+3. **Device Approval** - Login via another trusted device (requires existing session)
+
+<Note>
+Security questions were removed from Ave (see `ave-server/src/routes/security.ts:431-439`). Only passkeys, trust codes, and device approval are supported.
+</Note>
+
+## 1. Passkey Authentication
+
+### Standard Login Flow
+
+Passkeys are the primary authentication method:
+
+1. Navigate to login page
+2. Enter your handle
+3. Click **"Continue with passkey"**
+4. Authenticate using biometrics (Touch ID, Face ID, Windows Hello) or device PIN
+5. System verifies signature and creates session
+
+See: `ave-server/src/routes/login.ts:163-316`
+
+### With PRF Support (Preferred)
+
+If your passkey supports PRF (Pseudo-Random Function):
+
+- Master key is encrypted with PRF output during registration
+- On login, PRF output decrypts master key automatically
+- No trust code needed for master key recovery
+- Seamless experience across devices with synced passkeys
+
+See: `ave-server/src/routes/security.ts:100` and `ave-server/src/routes/login.ts:305-310`
+
+### Without PRF Support
+
+If your passkey doesn't support PRF:
+
+- Session is created successfully
+- You'll be prompted to recover master key using trust code
+- Enter a trust code to decrypt your master key backup
+- Master key is stored locally for future sessions
+
+See: `TESTING.md:70-96`
+
+### Adding Additional Passkeys
+
+You can register multiple passkeys for redundancy:
+
+1. Log in to Dashboard
+2. Navigate to **Security**
+3. Click **"Add a new passkey"**
+4. Follow browser prompts to create new passkey
+5. Name it descriptively (e.g., "MacBook Pro Touch ID")
+
+Each passkey can optionally store a PRF-encrypted master key.
+
+See: `ave-server/src/routes/security.ts:56-192` and `TESTING.md:374-382`
+
+## 2. Trust Code Recovery
+
+### What Are Trust Codes?
+
+Trust codes are 25-character recovery keys in format `XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`.
+
+**Properties:**
+- Provided during registration (2 codes)
+- Reusable (not consumed on use)
+- Decrypt your master key backup
+- Stored as SHA-256 hashes server-side
+
+See: [Trust Codes](/security/trust-codes) for complete documentation.
+
+### When to Use Trust Codes
+
+**Scenario 1: Lost all passkeys**
+
+- Device stolen/broken
+- Passkeys not synced to other devices
+- Need full account access immediately
+
+**Scenario 2: Master key recovery**
+
+- Logged in via passkey without PRF
+- Need to decrypt existing data
+- Don't have master key stored locally
+
+**Scenario 3: New device without device approval**
+
+- Setting up first device in a new location
+- No other active sessions to approve from
+- Want to avoid waiting for approval timeout
+
+See: `TESTING.md:99-126`
+
+### Using Trust Codes
+
+1. Start login flow with your handle
+2. Click **"Use a trust code"**
+3. Enter one of your saved codes (hyphens optional)
+4. Provide device information
+5. Master key backup is decrypted client-side
+6. Session created with full access
+
+<Warning>
+Trust code login is logged as a warning-level security event. You'll receive notifications on other devices.
+</Warning>
+
+See: `ave-server/src/routes/login.ts:517-659`
+
+## 3. Device Approval (Multi-Device Login)
+
+### How It Works
+
+Device approval allows you to log in to a new device using an existing trusted session:
+
+1. **New device** generates ephemeral ECDH key pair
+2. **New device** requests approval via WebSocket/polling
+3. **Trusted device** receives real-time notification
+4. User reviews device info and approves/denies
+5. **Trusted device** encrypts master key with shared secret
+6. **New device** decrypts master key and creates session
+
+See: `TESTING.md:156-233`
+
+### Security Features
+
+**End-to-end encryption:**
+- Ephemeral ECDH key exchange (P-256 curve)
+- Master key never transmitted in plaintext
+- Only encrypted with short-lived shared secret
+
+See: `ave-server/src/routes/login.ts:318-405`
+
+**Request expiration:**
+- Login requests expire after 5 minutes
+- Prevents stale approval attempts
+- Reduces attack window
+
+See: `ave-server/src/routes/login.ts:355`
+
+**Device information disclosure:**
+- Device name and type
+- Browser and operating system
+- IP address and timestamp
+- Allows informed approval decision
+
+See: `ave-server/src/routes/login.ts:360-366`
+
+### Step-by-Step Process
+
+#### On the New Device
+
+1. Go to login page
+2. Enter your handle
+3. Click **"Confirm on a trusted device"**
+4. Screen shows "Waiting for approval..."
+5. Device subscribes to WebSocket updates
+6. Falls back to polling if WebSocket unavailable
+
+See: `TESTING.md:183-195`
+
+#### On a Trusted Device
+
+1. Receive real-time notification (red badge on "Login Requests")
+2. Navigate to **Dashboard → Login Requests**
+3. Review device information:
+   - Device icon (computer/phone/tablet)
+   - Browser and OS
+   - IP address
+   - Time of request
+4. Click **"Approve"** or **"Deny"**
+
+See: `TESTING.md:197-220`
+
+#### After Approval
+
+- New device receives encrypted master key
+- Master key decrypted with ephemeral shared secret
+- Session created automatically
+- Both devices now have full access
+- Login request deleted from database
+
+See: `ave-server/src/routes/login.ts:425-504` and `TESTING.md:221-232`
+
+### Denial and Expiration
+
+**If request is denied:**
+- New device shows "Request denied" immediately
+- Option to try another method
+- Request deleted from database
+
+See: `TESTING.md:235-247`
+
+**If request expires (5 minutes):**
+- Status changes to "expired"
+- User must start a new login attempt
+- Request remains in database until cleanup
+
+See: `TESTING.md:249-257` and `ave-server/src/routes/login.ts:421-423`
+
+### WebSocket vs Polling
+
+Ave uses WebSocket for real-time updates with polling fallback:
+
+**WebSocket (preferred):**
+- Instant notifications on both devices
+- Lower latency for approval flow
+- Connection-aware status
+
+See: `TESTING.md:198`
+
+**Polling (fallback):**
+- 2-second intervals via HTTP GET
+- Works when WebSocket blocked/unavailable
+- Reliable but higher latency
+
+See: `TESTING.md:259-273` and `ave-server/src/routes/login.ts:408-514`
+
+## Recovery Method Comparison
+
+| Method | Use Case | Requires | Speed | Security |
+|--------|----------|----------|-------|----------|
+| **Passkey** | Standard login | Registered passkey | Instant | High |
+| **Passkey + PRF** | Standard login with auto key recovery | PRF-capable passkey | Instant | Highest |
+| **Trust Code** | Emergency access, lost passkeys | Written/stored code | Fast | High |
+| **Device Approval** | New device with existing session | Active session elsewhere | 5-30s | High |
+
+## Choosing the Right Method
+
+### For Daily Use
+
+**Use passkey authentication:**
+- Fastest and most convenient
+- Biometric/PIN protected
+- Syncs across your devices (via iCloud Keychain, Google Password Manager, etc.)
+
+See: `TESTING.md:70-96`
+
+### For Account Recovery
+
+**Use trust codes when:**
+- All passkeys are lost/inaccessible
+- Setting up from completely new environment
+- Device approval not available (no active sessions)
+
+See: `TESTING.md:99-126`
+
+### For Adding New Devices
+
+**Use device approval when:**
+- You have another device with active session
+- Want to review device info before approving
+- Prefer not to retrieve stored trust codes
+
+See: `TESTING.md:156-233`
+
+## Recovery Planning
+
+### Before You Need Recovery
+
+1. **Register multiple passkeys** on different devices
+2. **Save trust codes** in secure offline storage
+3. **Keep one active session** on a device you control
+4. **Test recovery flow** at least once to verify it works
+
+See: `TESTING.md:374-393`
+
+### Creating a Recovery Kit
+
+Store the following securely (physical safe, password manager, etc.):
+
+```
+Ave Recovery Information
+------------------------
+Handle: your_handle
+Primary Email: your_email@example.com
+
+Trust Code 1: XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
+Trust Code 2: XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
+
+Passkeys Registered:
+- Device 1 name and location
+- Device 2 name and location
+
+Last Updated: YYYY-MM-DD
+```
+
+### Testing Your Recovery
+
+1. **Test passkey login** - Log out and back in using biometric
+2. **Test trust code recovery** - Use a trust code to log in from new browser
+3. **Test device approval** - Request approval from incognito window
+4. **Verify master key access** - Confirm you can decrypt existing data
+
+See: `TESTING.md:99-298`
+
+## Troubleshooting
+
+### Cannot Access Any Recovery Method
+
+If you've lost access to all passkeys, trust codes, and active sessions:
+
+1. Check if passkeys synced to another device (iCloud, Google account)
+2. Search for trust codes in password manager, notes, or physical storage
+3. Check email for account creation confirmation (may include recovery info)
+4. Contact Ave support with identity verification
+
+### Trust Code Not Working
+
+See [Trust Codes Troubleshooting](/security/trust-codes#troubleshooting) for:
+- Invalid code errors
+- No codes found errors
+- Master key decryption failures
+
+### Device Approval Stuck
+
+If approval request is not appearing:
+
+1. Refresh the trusted device
+2. Navigate manually to Dashboard → Login Requests
+3. Check browser console for WebSocket errors
+4. Try polling fallback (wait 5-10 seconds)
+5. Request may have expired - try again
+
+See: `TESTING.md:276-297`
+
+### Passkey Not Recognized
+
+If browser doesn't show your passkey:
+
+1. Ensure you're on correct domain/localhost port
+2. Check if passkey synced to this device
+3. Verify browser supports WebAuthn (Chrome, Edge, Safari, Firefox)
+4. Try different browser or device
+5. Use trust code recovery as fallback
+
+See: `ave-server/src/routes/login.ts:192-206`
+
+## Security Considerations
+
+### Activity Logging
+
+All recovery attempts are logged:
+
+```json
+{
+  "action": "login",
+  "details": { "method": "trust_code" | "passkey" | "device_approval" },
+  "severity": "info" | "warning",
+  "ipAddress": "...",
+  "deviceId": "..."
+}
+```
+
+See: `ave-server/src/routes/login.ts:272-280`
+
+### Failed Attempt Monitoring
+
+Failed recovery attempts are logged as warnings:
+
+```json
+{
+  "action": "trust_code_failed" | "key_recovery_failed",
+  "details": { "reason": "invalid_code" },
+  "severity": "warning"
+}
+```
+
+See: `ave-server/src/routes/login.ts:573-580` and `ave-server/src/routes/login.ts:702-709`
+
+### Rate Limiting Recommendations
+
+While not currently implemented, production deployments should add:
+
+- Limit trust code attempts per IP/handle
+- Exponential backoff for failed passkey verifications
+- CAPTCHA after multiple failed attempts
+
+See: `TESTING.md:566-569`
+
+## Related Topics
+
+- [Trust Codes](/security/trust-codes) - Detailed trust code documentation
+- [Session Management](/security/session-management) - Session tokens and cookies
+- [Best Practices](/security/best-practices) - Security recommendations

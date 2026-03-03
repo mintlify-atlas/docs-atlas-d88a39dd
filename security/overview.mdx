@@ -1,0 +1,180 @@
+---
+title: Security Architecture
+description: Understanding Ave's multi-layered security approach
+---
+
+Ave implements a comprehensive security architecture built on three core principles:
+
+1. **Passwordless Authentication** - WebAuthn passkeys eliminate password vulnerabilities
+2. **End-to-End Encryption** - Your data is encrypted before it leaves your device
+3. **Zero-Knowledge Architecture** - The server cannot decrypt your data
+
+## Security Layers
+
+<Steps>
+  <Step title="Authentication Layer">
+    WebAuthn passkeys provide phishing-resistant authentication using your device's biometric sensors or security keys.
+    
+    - No passwords to steal or guess
+    - Resistant to phishing and man-in-the-middle attacks
+    - Hardware-backed cryptographic verification
+  </Step>
+
+  <Step title="Encryption Layer">
+    End-to-end encryption ensures only you can read your data.
+    
+    - AES-256-GCM encryption
+    - Master keys never leave your device in plaintext
+    - Each user generates their own encryption keys
+  </Step>
+
+  <Step title="Recovery Layer">
+    Multiple recovery mechanisms ensure you never lose access.
+    
+    - Trust codes for account recovery
+    - Multi-device login approval
+    - PRF extension for seamless passkey-based recovery
+  </Step>
+
+  <Step title="Session Layer">
+    Secure session management with device tracking.
+    
+    - SHA-256 hashed session tokens
+    - Per-device session isolation
+    - Activity logging for audit trails
+  </Step>
+</Steps>
+
+## What the Server Cannot See
+
+Ave's zero-knowledge architecture means the server stores encrypted data it cannot decrypt:
+
+<CardGroup cols={2}>
+  <Card title="Never Sent in Plaintext" icon="lock">
+    - Master encryption keys
+    - Security question answers (removed)
+    - Decrypted user data
+    - Trust code plaintext
+  </Card>
+
+  <Card title="Server Can See" icon="server">
+    - Hashed passkey challenges (WebAuthn protocol)
+    - Encrypted master key backups
+    - Hashed trust codes
+    - Session tokens and device info
+    - Activity logs (actions, not content)
+  </Card>
+</CardGroup>
+
+<Note>
+The server stores **encrypted blobs** that only you can decrypt with your master key. Even if the database were compromised, your data remains protected.
+</Note>
+
+## Data Protection Guarantees
+
+### Client-Side Operations
+
+All sensitive cryptographic operations happen in your browser:
+
+- **Key Generation**: Master keys are generated using `crypto.subtle.generateKey()` with 256-bit AES-GCM
+- **Encryption**: Data is encrypted before transmission using the Web Crypto API
+- **Key Derivation**: Trust codes derive encryption keys using PBKDF2 with 100,000 iterations
+
+See [ave-web/src/lib/crypto.ts:19](https://github.com/your-org/ave/blob/main/ave-web/src/lib/crypto.ts#L19) for implementation details.
+
+### Server-Side Security
+
+The server handles authentication and stores encrypted data:
+
+- **Passkey Verification**: WebAuthn responses are verified using `@simplewebauthn/server`
+- **Hash Storage**: Trust codes and session tokens are stored as SHA-256 hashes
+- **Encrypted Backups**: Master key backups are stored encrypted, only decryptable with trust codes
+
+See [ave-server/src/routes/register.ts:101](https://github.com/your-org/ave/blob/main/ave-server/src/routes/register.ts#L101) for registration flow.
+
+## Authentication Methods
+
+Ave supports multiple authentication methods for different scenarios:
+
+| Method | Use Case | Security Level | Requires |
+|--------|----------|----------------|----------|
+| **Passkey** | Primary login | Highest | Device biometric/PIN |
+| **Device Approval** | New device setup | High | Existing logged-in device |
+| **Trust Code** | Account recovery | Medium | Saved recovery code |
+
+<Warning>
+Trust codes should be stored securely offline (printed, password manager, etc.). Anyone with a trust code can decrypt your master key backup.
+</Warning>
+
+## Security Best Practices
+
+### For Users
+
+1. **Save Trust Codes**: Store your trust codes in a secure location immediately after registration
+2. **Enable Biometrics**: Use Touch ID, Face ID, or Windows Hello for passkey protection
+3. **Monitor Devices**: Regularly review active devices and revoke unknown sessions
+4. **Use Multiple Passkeys**: Register passkeys on multiple devices for redundancy
+
+### For Developers
+
+When integrating with Ave:
+
+1. **Respect E2EE**: If an OAuth app doesn't support E2EE, it won't receive encrypted data
+2. **Validate Origins**: Always verify WebAuthn challenges come from expected origins
+3. **Use HTTPS**: WebAuthn requires secure contexts (HTTPS or localhost)
+4. **Handle Expiration**: Sessions expire after 30 days; implement token refresh
+
+## Security Audit Trail
+
+All security-related actions are logged in the activity log:
+
+- Account creation and recovery
+- Login attempts (successful and failed)
+- Passkey additions and removals
+- Trust code regeneration
+- Device authorizations and revocations
+
+Activity logs include severity levels:
+- `info` - Normal operations (login, passkey added)
+- `warning` - Security-relevant actions (trust code used, passkey removed)
+- `danger` - Critical security events (account recovered, all devices revoked)
+
+See [Key Management](/security/key-management#activity-monitoring) for details.
+
+## Threat Model
+
+Ave is designed to protect against:
+
+✅ **Phishing Attacks** - Passkeys are origin-bound and cannot be phished
+
+✅ **Credential Stuffing** - No passwords to reuse or steal
+
+✅ **Server Compromise** - Encrypted data remains protected even if database is leaked
+
+✅ **Man-in-the-Middle** - WebAuthn and HTTPS prevent interception
+
+✅ **Session Hijacking** - Tokens are hashed and scoped to devices
+
+⚠️ **Device Compromise** - If an attacker gains access to your unlocked device, they can use your stored master key. Use device encryption and lock screens.
+
+⚠️ **Trust Code Theft** - Protect trust codes like passwords. Anyone with a code can recover your account.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="WebAuthn Implementation" href="/security/webauthn" icon="fingerprint">
+    Learn how passkeys work in Ave
+  </Card>
+  
+  <Card title="Encryption Model" href="/security/encryption-model" icon="shield-halved">
+    Deep dive into E2EE architecture
+  </Card>
+  
+  <Card title="Key Management" href="/security/key-management" icon="key">
+    Master key generation and recovery
+  </Card>
+  
+  <Card title="Testing Guide" href="/testing" icon="vial">
+    Test security workflows end-to-end
+  </Card>
+</CardGroup>

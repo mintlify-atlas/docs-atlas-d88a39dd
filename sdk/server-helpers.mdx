@@ -1,0 +1,462 @@
+---
+title: Server Helpers
+description: Server-side token exchange with client secrets
+---
+
+The `@ave-id/sdk/server` module provides server-side helpers for exchanging authorization codes and refresh tokens using your client secret. These functions should only be called from your backend to keep your secret secure.
+
+<Warning>
+  Never use server helpers in client-side code. Your `clientSecret` must remain confidential.
+</Warning>
+
+## Import Server Helpers
+
+```ts
+import {
+  exchangeCodeServer,
+  refreshTokenServer,
+  exchangeDelegatedTokenServer,
+} from "@ave-id/sdk/server";
+```
+
+## Why Use Server Helpers?
+
+Server-side token exchange is more secure than client-side exchange because:
+
+1. **Client secret protection**: Secrets never leave your backend
+2. **Token security**: Tokens can be stored in HTTP-only cookies
+3. **Better control**: You can validate and log token exchanges
+
+## Quick Start
+
+Exchange an authorization code for tokens on your server:
+
+```ts
+import { exchangeCodeServer } from "@ave-id/sdk/server";
+
+const tokens = await exchangeCodeServer(
+  {
+    clientId: "YOUR_CLIENT_ID",
+    clientSecret: process.env.AVE_CLIENT_SECRET!,
+    redirectUri: "https://yourapp.com/callback",
+  },
+  { code: "CODE_FROM_CALLBACK" }
+);
+
+console.log(tokens.access_token);
+```
+
+## API Reference
+
+### exchangeCodeServer
+
+Exchanges an authorization code for access tokens using client credentials.
+
+```ts
+function exchangeCodeServer(
+  config: ServerConfig,
+  payload: { code: string }
+): Promise<TokenResponse>
+```
+
+<ParamField path="config" type="ServerConfig" required>
+  Server configuration object
+  <Expandable title="properties">
+    <ParamField path="clientId" type="string" required>
+      Your application's client ID
+    </ParamField>
+    <ParamField path="clientSecret" type="string" required>
+      Your application's client secret (keep this secure!)
+    </ParamField>
+    <ParamField path="redirectUri" type="string" required>
+      The redirect URI used in the authorization request
+    </ParamField>
+    <ParamField path="issuer" type="string" default="https://aveid.net">
+      Ave issuer URL
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="payload.code" type="string" required>
+  Authorization code from the OAuth callback
+</ParamField>
+
+**Returns:** `TokenResponse` object
+
+<ResponseField name="access_token" type="string">
+  Opaque access token
+</ResponseField>
+<ResponseField name="access_token_jwt" type="string">
+  JWT version of the access token
+</ResponseField>
+<ResponseField name="id_token" type="string">
+  OIDC ID token (if `openid` scope requested)
+</ResponseField>
+<ResponseField name="refresh_token" type="string">
+  Refresh token (if `offline_access` scope requested)
+</ResponseField>
+<ResponseField name="expires_in" type="number">
+  Token lifetime in seconds
+</ResponseField>
+<ResponseField name="scope" type="string">
+  Granted scopes (space-separated)
+</ResponseField>
+
+**Example:**
+
+<Tabs>
+  <Tab title="Next.js">
+    ```ts
+    // app/api/auth/callback/route.ts
+    import { NextRequest, NextResponse } from "next/server";
+    import { exchangeCodeServer } from "@ave-id/sdk/server";
+
+    export async function GET(request: NextRequest) {
+      const searchParams = request.nextUrl.searchParams;
+      const code = searchParams.get("code");
+
+      if (!code) {
+        return NextResponse.json({ error: "Missing code" }, { status: 400 });
+      }
+
+      try {
+        const tokens = await exchangeCodeServer(
+          {
+            clientId: process.env.AVE_CLIENT_ID!,
+            clientSecret: process.env.AVE_CLIENT_SECRET!,
+            redirectUri: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback`,
+          },
+          { code }
+        );
+
+        // Store tokens in HTTP-only cookie
+        const response = NextResponse.redirect(
+          new URL("/dashboard", request.url)
+        );
+        response.cookies.set("ave_access_token", tokens.access_token, {
+          httpOnly: true,
+          secure: true,
+          sameSite: "lax",
+          maxAge: tokens.expires_in,
+        });
+
+        if (tokens.refresh_token) {
+          response.cookies.set("ave_refresh_token", tokens.refresh_token, {
+            httpOnly: true,
+            secure: true,
+            sameSite: "lax",
+            maxAge: 60 * 60 * 24 * 30, // 30 days
+          });
+        }
+
+        return response;
+      } catch (error) {
+        return NextResponse.json(
+          { error: "Token exchange failed" },
+          { status: 500 }
+        );
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Express">
+    ```ts
+    import express from "express";
+    import { exchangeCodeServer } from "@ave-id/sdk/server";
+
+    const app = express();
+
+    app.get("/auth/callback", async (req, res) => {
+      const { code } = req.query;
+
+      if (!code || typeof code !== "string") {
+        return res.status(400).send("Missing code");
+      }
+
+      try {
+        const tokens = await exchangeCodeServer(
+          {
+            clientId: process.env.AVE_CLIENT_ID!,
+            clientSecret: process.env.AVE_CLIENT_SECRET!,
+            redirectUri: "http://localhost:3000/auth/callback",
+          },
+          { code }
+        );
+
+        // Store in HTTP-only cookie
+        res.cookie("ave_access_token", tokens.access_token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          maxAge: tokens.expires_in * 1000,
+        });
+
+        if (tokens.refresh_token) {
+          res.cookie("ave_refresh_token", tokens.refresh_token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+          });
+        }
+
+        res.redirect("/dashboard");
+      } catch (error) {
+        res.status(500).send("Authentication failed");
+      }
+    });
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+### refreshTokenServer
+
+Exchanges a refresh token for new access tokens using client credentials.
+
+```ts
+function refreshTokenServer(
+  config: ServerConfig,
+  payload: { refreshToken: string }
+): Promise<TokenResponse>
+```
+
+<ParamField path="config" type="ServerConfig" required>
+  Server configuration (same as `exchangeCodeServer`)
+</ParamField>
+
+<ParamField path="payload.refreshToken" type="string" required>
+  The refresh token from a previous token response
+</ParamField>
+
+**Returns:** `TokenResponse` with fresh tokens
+
+**Example:**
+
+```ts
+import { refreshTokenServer } from "@ave-id/sdk/server";
+
+// Middleware to refresh expired tokens
+app.use(async (req, res, next) => {
+  const accessToken = req.cookies.ave_access_token;
+  const refreshToken = req.cookies.ave_refresh_token;
+
+  // Check if access token is expired (you should decode and check exp claim)
+  const isExpired = checkIfExpired(accessToken);
+
+  if (isExpired && refreshToken) {
+    try {
+      const newTokens = await refreshTokenServer(
+        {
+          clientId: process.env.AVE_CLIENT_ID!,
+          clientSecret: process.env.AVE_CLIENT_SECRET!,
+          redirectUri: "http://localhost:3000/auth/callback",
+        },
+        { refreshToken }
+      );
+
+      // Update cookies
+      res.cookie("ave_access_token", newTokens.access_token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: newTokens.expires_in * 1000,
+      });
+    } catch (error) {
+      // Refresh failed, redirect to login
+      return res.redirect("/login");
+    }
+  }
+
+  next();
+});
+```
+
+---
+
+### exchangeDelegatedTokenServer
+
+Exchanges a user's access token for a delegated token to access third-party resources.
+
+```ts
+function exchangeDelegatedTokenServer(
+  config: ServerConfig,
+  payload: {
+    subjectToken: string;
+    requestedResource: string;
+    requestedScope: string;
+    actor?: Record<string, unknown>;
+  }
+): Promise<DelegationTokenResponse>
+```
+
+<ParamField path="config" type="ServerConfig" required>
+  Server configuration
+</ParamField>
+
+<ParamField path="payload" type="object" required>
+  <Expandable title="properties">
+    <ParamField path="subjectToken" type="string" required>
+      User's access token from Ave
+    </ParamField>
+    <ParamField path="requestedResource" type="string" required>
+      Target resource identifier (e.g., `github.com`)
+    </ParamField>
+    <ParamField path="requestedScope" type="string" required>
+      Space-separated scopes for the resource
+    </ParamField>
+    <ParamField path="actor" type="Record<string, unknown>">
+      Actor information for the delegation
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Returns:** `DelegationTokenResponse`
+
+<ResponseField name="access_token" type="string">
+  Delegated access token for the target resource
+</ResponseField>
+<ResponseField name="token_type" type="'Bearer'">
+  Always `Bearer`
+</ResponseField>
+<ResponseField name="expires_in" type="number">
+  Token lifetime in seconds
+</ResponseField>
+<ResponseField name="scope" type="string">
+  Granted scopes for the resource
+</ResponseField>
+<ResponseField name="audience" type="string">
+  Token audience
+</ResponseField>
+<ResponseField name="target_resource" type="string">
+  The resource identifier
+</ResponseField>
+<ResponseField name="communication_mode" type="'user_present' | 'background'">
+  Delegation communication mode
+</ResponseField>
+
+**Example:**
+
+```ts
+import { exchangeDelegatedTokenServer } from "@ave-id/sdk/server";
+
+// API endpoint to get user's GitHub repos
+app.get("/api/github/repos", async (req, res) => {
+  const userToken = req.cookies.ave_access_token;
+
+  try {
+    // Get delegated GitHub token
+    const delegation = await exchangeDelegatedTokenServer(
+      {
+        clientId: process.env.AVE_CLIENT_ID!,
+        clientSecret: process.env.AVE_CLIENT_SECRET!,
+        redirectUri: "http://localhost:3000/auth/callback",
+      },
+      {
+        subjectToken: userToken,
+        requestedResource: "github.com",
+        requestedScope: "repo",
+      }
+    );
+
+    // Use delegated token to call GitHub API
+    const githubResponse = await fetch("https://api.github.com/user/repos", {
+      headers: {
+        Authorization: `Bearer ${delegation.access_token}`,
+      },
+    });
+
+    const repos = await githubResponse.json();
+    res.json(repos);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch GitHub repos" });
+  }
+});
+```
+
+## Environment Variables
+
+Store your Ave credentials in environment variables:
+
+```bash
+# .env
+AVE_CLIENT_ID=your_client_id
+AVE_CLIENT_SECRET=your_client_secret_here
+NEXT_PUBLIC_APP_URL=https://yourapp.com
+```
+
+<Warning>
+  Never commit your `.env` file to version control. Add it to `.gitignore`.
+</Warning>
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Store tokens securely">
+    Use HTTP-only, secure cookies to store tokens:
+    
+    ```ts
+    res.cookie("ave_access_token", tokens.access_token, {
+      httpOnly: true,  // Prevent JavaScript access
+      secure: true,    // HTTPS only
+      sameSite: "lax", // CSRF protection
+      maxAge: tokens.expires_in * 1000,
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Validate redirect URIs">
+    Always validate that callback URLs match your configured redirect URIs:
+    
+    ```ts
+    const allowedRedirects = [
+      "https://yourapp.com/auth/callback",
+      "https://staging.yourapp.com/auth/callback",
+    ];
+    
+    if (!allowedRedirects.includes(redirectUri)) {
+      throw new Error("Invalid redirect URI");
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Implement token rotation">
+    Use refresh tokens to rotate access tokens before they expire:
+    
+    ```ts
+    // Check token expiry before API calls
+    if (isTokenExpired(accessToken) && refreshToken) {
+      const newTokens = await refreshTokenServer(config, { refreshToken });
+      // Update stored tokens
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Rate limit token exchanges">
+    Implement rate limiting to prevent abuse:
+    
+    ```ts
+    import rateLimit from "express-rate-limit";
+    
+    const authLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 5, // 5 requests per window
+    });
+    
+    app.get("/auth/callback", authLimiter, async (req, res) => {
+      // Handle callback
+    });
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="OAuth Flow" icon="arrow-right-to-bracket" href="/sdk/oauth-flow">
+    Learn about the OAuth protocol
+  </Card>
+  
+  <Card title="Client Helpers" icon="browser" href="/sdk/client-helpers">
+    Initiate login flows from the browser
+  </Card>
+</CardGroup>

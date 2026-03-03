@@ -1,0 +1,438 @@
+---
+title: WebAuthn & Passkeys
+description: How Ave implements passwordless authentication with WebAuthn
+---
+
+Ave uses [WebAuthn](https://www.w3.org/TR/webauthn-2/) (Web Authentication) to provide passwordless authentication through passkeys. Passkeys are cryptographic credentials stored securely on your devices, protected by biometrics or device PINs.
+
+## How Passkeys Work
+
+<Steps>
+  <Step title="Registration">
+    During account creation, your device generates a public/private key pair.
+    
+    - **Private key** stays on your device (in Secure Enclave, TPM, or security key)
+    - **Public key** is sent to the server for verification
+    - Keys are bound to `ave.id` origin (prevents phishing)
+  </Step>
+
+  <Step title="Authentication">
+    When you log in, the server sends a challenge.
+    
+    - Your device signs the challenge with the private key
+    - Server verifies the signature using the stored public key
+    - No secrets are transmitted over the network
+  </Step>
+
+  <Step title="User Verification">
+    Your device requires biometric or PIN verification.
+    
+    - Touch ID, Face ID, Windows Hello, or Android fingerprint
+    - Ensures you're present and authorized
+    - Hardware-backed security
+  </Step>
+</Steps>
+
+<Note>
+Passkeys are **phishing-resistant** because they're cryptographically bound to the domain. Even if you're tricked into visiting a fake site, the passkey won't work.
+</Note>
+
+## Registration Flow
+
+Here's how Ave creates a passkey during account registration:
+
+```typescript
+// Client requests registration options
+POST /api/register/start
+{
+  "handle": "alice"
+}
+
+// Server generates WebAuthn challenge
+Response:
+{
+  "options": {
+    "challenge": "randomBase64Challenge",
+    "rp": { "name": "Ave", "id": "ave.id" },
+    "user": { "id": "tempUserId", "name": "alice" },
+    "authenticatorSelection": {
+      "residentKey": "required",
+      "userVerification": "required"
+    }
+  },
+  "tempUserId": "uuid"
+}
+```
+
+See [ave-server/src/routes/register.ts:29](https://github.com/your-org/ave/blob/main/ave-server/src/routes/register.ts#L29) for implementation.
+
+The client then uses the browser's WebAuthn API:
+
+```typescript
+// Client creates passkey
+const credential = await navigator.credentials.create({
+  publicKey: options
+});
+
+// Send credential to server for verification
+POST /api/register/complete
+{
+  "tempUserId": "uuid",
+  "credential": credential,
+  "identity": { ... },
+  "device": { ... }
+}
+```
+
+The server verifies the credential using `@simplewebauthn/server`:
+
+```typescript
+// Verify the registration response
+const verification = await verifyRegistrationResponse({
+  response: credential,
+  expectedChallenge: storedChallenge,
+  expectedOrigin: "https://ave.id",
+  expectedRPID: "ave.id"
+});
+
+if (verification.verified) {
+  // Store public key and create user account
+  const publicKey = registrationInfo.credential.publicKey;
+  const credentialId = registrationInfo.credential.id;
+  // ...
+}
+```
+
+See [ave-server/src/routes/register.ts:124](https://github.com/your-org/ave/blob/main/ave-server/src/routes/register.ts#L124) for verification logic.
+
+## Login Flow
+
+Authentication works similarly:
+
+```typescript
+// Client starts login
+POST /api/login/start
+{
+  "handle": "alice"
+}
+
+// Server returns challenge
+Response:
+{
+  "userId": "uuid",
+  "authOptions": {
+    "challenge": "randomBase64Challenge",
+    "rpId": "ave.id",
+    "allowCredentials": []  // Allows discoverable credentials
+  },
+  "authSessionId": "uuid"
+}
+```
+
+<Note>
+Ave sets `allowCredentials: []` to support **discoverable credentials** (passkeys stored in password managers like 1Password). This allows users to select from all available passkeys, not just those registered on the current device.
+</Note>
+
+The client authenticates:
+
+```typescript
+// Get passkey assertion
+const credential = await navigator.credentials.get({
+  publicKey: authOptions
+});
+
+// Send to server
+POST /api/login/passkey
+{
+  "authSessionId": "uuid",
+  "credential": credential,
+  "device": {
+    "name": "Chrome on macOS",
+    "type": "computer",
+    "fingerprint": "device-fingerprint-hash"
+  }
+}
+```
+
+Server verification:
+
+```typescript
+// Find the passkey by credential ID
+const passkey = await db.query.passkeys.findFirst({
+  where: eq(passkeys.id, credential.id)
+});
+
+// Verify the authentication response
+const verification = await verifyAuthenticationResponse({
+  response: credential,
+  expectedChallenge: storedChallenge,
+  expectedOrigin: "https://ave.id",
+  expectedRPID: "ave.id",
+  credential: {
+    id: passkey.id,
+    publicKey: Buffer.from(passkey.publicKey, "base64"),
+    counter: passkey.counter,
+    transports: passkey.transports
+  }
+});
+
+if (verification.verified) {
+  // Update counter (prevents replay attacks)
+  await db.update(passkeys)
+    .set({ counter: verification.authenticationInfo.newCounter })
+    .where(eq(passkeys.id, passkey.id));
+  
+  // Create session
+  // ...
+}
+```
+
+See [ave-server/src/routes/login.ts:226](https://github.com/your-org/ave/blob/main/ave-server/src/routes/login.ts#L226) for verification.
+
+## Passkey Storage
+
+Passkeys are stored in the database with this schema:
+
+```typescript
+export const passkeys = sqliteTable("passkeys", {
+  id: text("id").primaryKey(), // Credential ID from WebAuthn
+  userId: text("user_id").notNull(),
+  
+  // WebAuthn credential data
+  publicKey: text("public_key").notNull(), // Base64 encoded
+  counter: integer("counter").notNull().default(0), // Prevents replay
+  deviceType: text("device_type"), // "platform" or "cross-platform"
+  backedUp: integer("backed_up", { mode: "boolean" }),
+  transports: text("transports", { mode: "json" }),
+  
+  // User-friendly metadata
+  name: text("name"), // "MacBook Pro Touch ID"
+  lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+  
+  // PRF extension support (see below)
+  prfEncryptedMasterKey: text("prf_encrypted_master_key"),
+  prfSalt: text("prf_salt")
+});
+```
+
+See [ave-server/src/db/schema.ts:39](https://github.com/your-org/ave/blob/main/ave-server/src/db/schema.ts#L39).
+
+<Warning>
+The `counter` field is critical for security. It increments with each authentication and prevents replay attacks. Always verify that `newCounter > oldCounter`.
+</Warning>
+
+## PRF Extension (Advanced)
+
+The **PRF (Pseudo-Random Function)** extension allows passkeys to derive deterministic secrets. Ave uses this to store an encrypted master key that only unlocks when you use the specific passkey.
+
+### How PRF Works
+
+<Steps>
+  <Step title="During Registration">
+    When creating a passkey with PRF support:
+    
+    ```typescript
+    const prfOutput = credential.getClientExtensionResults().prf?.results.first;
+    
+    if (prfOutput) {
+      // Derive encryption key from PRF output
+      const prfKey = await deriveKeyFromPrf(prfOutput);
+      
+      // Encrypt master key with PRF key
+      const encrypted = await encryptMasterKeyWithPrf(masterKey, prfOutput);
+      
+      // Store encrypted master key with passkey
+      await updatePasskey({
+        prfEncryptedMasterKey: encrypted
+      });
+    }
+    ```
+  </Step>
+
+  <Step title="During Login">
+    The same PRF output is available during authentication:
+    
+    ```typescript
+    const prfOutput = credential.getClientExtensionResults().prf?.results.first;
+    
+    // Decrypt master key using PRF output
+    const masterKey = await decryptMasterKeyWithPrf(
+      passkey.prfEncryptedMasterKey,
+      prfOutput
+    );
+    
+    // Store master key locally
+    await storeMasterKey(masterKey);
+    ```
+  </Step>
+</Steps>
+
+<Note>
+With PRF, users don't need to enter trust codes after logging in on a new device. The passkey itself unlocks the master key.
+</Note>
+
+See [ave-web/src/lib/crypto.ts:326](https://github.com/your-org/ave/blob/main/ave-web/src/lib/crypto.ts#L326) for PRF implementation.
+
+## Authenticator Types
+
+Ave supports different types of authenticators:
+
+### Platform Authenticators
+
+Built into the device:
+- Touch ID / Face ID (macOS, iOS)
+- Windows Hello (Windows)
+- Android fingerprint / face unlock
+
+**Characteristics:**
+- Fast and convenient
+- Cannot be moved to other devices
+- Backed by hardware security (Secure Enclave, TPM)
+
+### Cross-Platform Authenticators
+
+Portable security keys:
+- YubiKey
+- Google Titan Key
+- Any FIDO2-compatible key
+
+**Characteristics:**
+- Can be used across devices
+- Physical device required
+- Resistant to malware
+
+### Synced Passkeys
+
+Passkeys synced via password managers:
+- iCloud Keychain (Apple devices)
+- Google Password Manager (Chrome, Android)
+- 1Password, Bitwarden, etc.
+
+**Characteristics:**
+- Available across synced devices
+- Managed by password manager
+- Convenient for multi-device users
+
+## Adding Additional Passkeys
+
+Users can register multiple passkeys for redundancy:
+
+```typescript
+// Start passkey registration (authenticated endpoint)
+POST /api/security/passkeys/register
+Authorization: Bearer session-token
+
+Response:
+{
+  "options": {
+    "challenge": "...",
+    "excludeCredentials": [/* existing passkey IDs */]
+  }
+}
+```
+
+The `excludeCredentials` list prevents re-registering the same passkey.
+
+See [ave-server/src/routes/security.ts:56](https://github.com/your-org/ave/blob/main/ave-server/src/routes/security.ts#L56).
+
+## Passkey Management
+
+Users can:
+
+- **Rename passkeys**: `PATCH /api/security/passkeys/:id { "name": "New Name" }`
+- **Delete passkeys**: `DELETE /api/security/passkeys/:id` (cannot delete last passkey)
+- **View usage**: `lastUsedAt` timestamp shows when passkey was last used
+
+<Warning>
+Users cannot delete their only passkey. This prevents account lockout. Always ensure at least one authentication method remains.
+</Warning>
+
+## Security Considerations
+
+### Challenge Storage
+
+Challenges are stored temporarily (5-15 minutes) in Redis or memory:
+
+```typescript
+await setChallenge(
+  "registration",
+  tempUserId,
+  { challenge: options.challenge },
+  15 * 60 * 1000 // 15 minutes
+);
+```
+
+See [ave-server/src/lib/challenge-store.ts](https://github.com/your-org/ave/blob/main/ave-server/src/lib/challenge-store.ts).
+
+### Origin Validation
+
+Ave validates WebAuthn origins to prevent domain attacks:
+
+```typescript
+// Extract origin from credential
+const clientDataJSON = JSON.parse(
+  Buffer.from(credential.response.clientDataJSON, "base64").toString()
+);
+const clientOrigin = clientDataJSON.origin;
+
+// In development, allow any localhost port
+const expectedOrigin = clientOrigin.match(/^http:\/\/localhost(:\d+)?$/)
+  ? clientOrigin
+  : process.env.RP_ORIGIN;
+
+await verifyRegistrationResponse({
+  expectedOrigin,
+  expectedRPID: "ave.id"
+});
+```
+
+See [ave-server/src/routes/register.ts:118](https://github.com/your-org/ave/blob/main/ave-server/src/routes/register.ts#L118).
+
+### Replay Prevention
+
+The counter field prevents replay attacks. Each authentication increments the counter:
+
+```typescript
+if (verification.authenticationInfo.newCounter <= passkey.counter) {
+  // Possible replay attack!
+  throw new Error("Counter did not increment");
+}
+
+await db.update(passkeys)
+  .set({ counter: verification.authenticationInfo.newCounter })
+  .where(eq(passkeys.id, passkey.id));
+```
+
+## Browser Compatibility
+
+WebAuthn is supported in:
+
+✅ Chrome/Edge 67+ (desktop and mobile)
+✅ Safari 13+ (macOS, iOS)
+✅ Firefox 60+
+✅ Opera 54+
+
+<Note>
+For best experience, use a modern browser with platform authenticator support (Touch ID, Windows Hello, etc.).
+</Note>
+
+## Testing
+
+To test passkey flows:
+
+1. **Registration**: Navigate to `/register` and create an account
+2. **Login**: Log out and sign back in with your passkey
+3. **Multiple Passkeys**: Add a second passkey in Security settings
+4. **Recovery**: Test trust code recovery when master key isn't available
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Encryption Model" href="/security/encryption-model" icon="shield-halved">
+    Learn how master keys work with passkeys
+  </Card>
+  
+  <Card title="Key Management" href="/security/key-management" icon="key">
+    Master key recovery and trust codes
+  </Card>
+</CardGroup>

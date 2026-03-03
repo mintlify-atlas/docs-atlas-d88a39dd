@@ -1,0 +1,287 @@
+---
+title: 'Authorization Code Flow'
+description: 'Implement OAuth authorization code flow with PKCE for secure user authentication'
+---
+
+## Overview
+
+The authorization code flow with PKCE (Proof Key for Code Exchange) is the recommended method for authenticating users with Ave. This flow ensures secure authentication even for public clients like single-page applications and mobile apps.
+
+## Flow Diagram
+
+<Steps>
+  <Step title="Generate PKCE parameters">
+    Create a code verifier and code challenge to secure the authorization flow.
+    
+    ```typescript
+    import { generateCodeVerifier, generateCodeChallenge } from 'ave-sdk';
+    
+    const codeVerifier = generateCodeVerifier();
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    
+    // Store codeVerifier securely (sessionStorage, localStorage, etc.)
+    sessionStorage.setItem('pkce_verifier', codeVerifier);
+    ```
+  </Step>
+  
+  <Step title="Build authorization URL">
+    Construct the authorization URL with your app's configuration and PKCE parameters.
+    
+    ```typescript
+    import { buildAuthorizeUrl } from 'ave-sdk';
+    
+    const config = {
+      clientId: 'your_client_id',
+      redirectUri: 'https://yourapp.com/callback'
+    };
+    
+    const authUrl = buildAuthorizeUrl(config, {
+      scope: ['openid', 'profile', 'email', 'offline_access'],
+      codeChallenge,
+      codeChallengeMethod: 'S256',
+      state: crypto.randomUUID(), // CSRF protection
+      nonce: crypto.randomUUID()  // Replay protection
+    });
+    ```
+  </Step>
+  
+  <Step title="Redirect user to Ave">
+    Redirect the user to the authorization URL. They will see the Ave authorization screen.
+    
+    ```typescript
+    window.location.href = authUrl;
+    ```
+    
+    The user will be redirected to:
+    ```
+    https://aveid.net/signin?client_id=...&redirect_uri=...&scope=...&code_challenge=...&code_challenge_method=S256&state=...&nonce=...
+    ```
+  </Step>
+  
+  <Step title="User authorizes your app">
+    The user sees your app's information and selects which Ave identity to use for authorization. After granting permission, Ave redirects back to your `redirect_uri` with an authorization code.
+  </Step>
+  
+  <Step title="Handle the callback">
+    Extract the authorization code and state from the callback URL.
+    
+    ```typescript
+    // On your callback page (e.g., /callback)
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const state = urlParams.get('state');
+    
+    // Verify state matches what you sent (CSRF protection)
+    if (state !== expectedState) {
+      throw new Error('State mismatch - possible CSRF attack');
+    }
+    
+    // Retrieve the code verifier
+    const codeVerifier = sessionStorage.getItem('pkce_verifier');
+    if (!codeVerifier) {
+      throw new Error('Code verifier not found');
+    }
+    ```
+  </Step>
+  
+  <Step title="Exchange code for tokens">
+    Exchange the authorization code for access tokens using the code verifier.
+    
+    ```typescript
+    import { exchangeCode } from 'ave-sdk';
+    
+    const tokens = await exchangeCode(config, {
+      code,
+      codeVerifier
+    });
+    
+    // Clean up
+    sessionStorage.removeItem('pkce_verifier');
+    
+    // Store tokens securely
+    console.log('Access token:', tokens.access_token);
+    console.log('ID token:', tokens.id_token);
+    console.log('Refresh token:', tokens.refresh_token);
+    console.log('User:', tokens.user);
+    ```
+  </Step>
+</Steps>
+
+## Authorization Endpoint
+
+### POST /api/oauth/authorize
+
+This endpoint requires user authentication and creates an authorization code.
+
+**Headers:**
+```
+Authorization: Bearer {session_token}
+Content-Type: application/json
+```
+
+**Request Body:**
+```typescript
+{
+  clientId: string;                                    // Your OAuth app client ID
+  redirectUri: string;                                 // Must match registered URI
+  scope?: string;                                      // Space-separated scopes (default: "profile")
+  state?: string;                                      // CSRF protection token
+  identityId: string;                                  // UUID of user's identity to use
+  codeChallenge?: string;                              // PKCE code challenge
+  codeChallengeMethod?: "S256" | "plain";              // Challenge method (use S256)
+  encryptedAppKey?: string;                            // E2EE: encrypted app key
+  nonce?: string;                                      // Replay protection
+  connector?: boolean;                                 // Enable delegation flow
+  requestedResource?: string;                          // Resource for delegation
+  requestedScope?: string;                             // Scope for delegation
+  communicationMode?: "user_present" | "background";   // Delegation mode
+}
+```
+
+**Response:**
+```json
+{
+  "redirectUrl": "https://yourapp.com/callback?code=abc123&state=xyz789"
+}
+```
+
+**Error Responses:**
+
+- `400` - Invalid client_id, redirect_uri, or scope
+- `400` - Identity doesn't belong to user
+- `400` - E2EE app requires encryptedAppKey
+
+## SDK Functions
+
+### generateCodeVerifier()
+
+Generates a cryptographically random code verifier for PKCE.
+
+```typescript
+function generateCodeVerifier(): string
+```
+
+**Example:**
+```typescript
+const verifier = generateCodeVerifier();
+// Returns: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+```
+
+### generateCodeChallenge()
+
+Generates a code challenge from a code verifier using SHA-256.
+
+```typescript
+function generateCodeChallenge(verifier: string): Promise<string>
+```
+
+**Example:**
+```typescript
+const challenge = await generateCodeChallenge(verifier);
+// Returns: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+```
+
+### generateNonce()
+
+Generates a random nonce for replay protection.
+
+```typescript
+function generateNonce(): string
+```
+
+**Example:**
+```typescript
+const nonce = generateNonce();
+```
+
+### buildAuthorizeUrl()
+
+Constructs the authorization URL for redirecting users.
+
+```typescript
+function buildAuthorizeUrl(
+  config: AveConfig,
+  params?: {
+    scope?: Scope[];
+    state?: string;
+    nonce?: string;
+    codeChallenge?: string;
+    codeChallengeMethod?: "S256" | "plain";
+    extraParams?: Record<string, string>;
+  }
+): string
+```
+
+**Example:**
+```typescript
+const url = buildAuthorizeUrl(
+  { clientId: 'app123', redirectUri: 'https://app.com/callback' },
+  {
+    scope: ['openid', 'profile', 'email'],
+    codeChallenge: challenge,
+    codeChallengeMethod: 'S256',
+    state: 'random_state'
+  }
+);
+```
+
+### exchangeCode()
+
+Exchanges an authorization code for access tokens.
+
+```typescript
+function exchangeCode(
+  config: AveConfig,
+  payload: {
+    code: string;
+    codeVerifier?: string;
+  }
+): Promise<TokenResponse>
+```
+
+**Example:**
+```typescript
+const tokens = await exchangeCode(
+  { clientId: 'app123', redirectUri: 'https://app.com/callback' },
+  { code: 'auth_code_here', codeVerifier: verifier }
+);
+```
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always use PKCE">
+    Even for confidential clients, PKCE adds an extra layer of security. Always use `S256` as the code challenge method, never `plain`.
+  </Accordion>
+  
+  <Accordion title="Validate state parameter">
+    The `state` parameter protects against CSRF attacks. Generate a random value, store it securely, and verify it matches when handling the callback.
+  </Accordion>
+  
+  <Accordion title="Use nonce for OIDC">
+    When requesting the `openid` scope, include a `nonce` parameter to prevent replay attacks. Verify the nonce claim in the ID token matches your original value.
+  </Accordion>
+  
+  <Accordion title="Store code verifier securely">
+    The code verifier is sensitive. Store it in sessionStorage or a secure cookie, never in localStorage or URL parameters.
+  </Accordion>
+  
+  <Accordion title="Validate redirect URIs">
+    Only use redirect URIs that are registered with your OAuth app. Ave will reject authorization requests with unregistered URIs.
+  </Accordion>
+</AccordionGroup>
+
+## Common Errors
+
+| Error Code | Description | Solution |
+|------------|-------------|----------|
+| `invalid_client` | Client ID not found | Verify your clientId is correct |
+| `invalid_scope` | Requested scope not allowed | Check your app's allowed scopes |
+| `invalid_grant` | Authorization code invalid/expired | Codes expire after 10 minutes |
+| `invalid_request` | Missing required parameter | Check all required fields are provided |
+
+## Next Steps
+
+<Card title="Token Exchange" icon="arrow-right" href="/oauth/token-exchange">
+  Learn how to refresh tokens and handle token expiration
+</Card>

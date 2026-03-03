@@ -1,0 +1,568 @@
+---
+title: Session Management
+description: Understanding session tokens, cookies, and security in Ave
+---
+
+## Overview
+
+Ave uses session tokens to maintain authenticated state across requests. Sessions are created after successful authentication and validated on each protected endpoint.
+
+## Session Architecture
+
+### Session Tokens
+
+Session tokens are cryptographically random 64-character hexadecimal strings:
+
+```typescript
+// Generation
+const sessionToken = randomBytes(32).toString("hex");
+// Result: "a1b2c3d4e5f6..." (64 chars)
+```
+
+See: `ave-server/src/lib/crypto.ts:61-63`
+
+**Properties:**
+- **256 bits of entropy** - Cryptographically secure random generation
+- **Stored as SHA-256 hash** - Server never stores plaintext tokens
+- **Single-use on creation** - Token returned once then hashed
+- **Stateless validation** - No session store required, database lookup only
+
+See: `ave-server/src/lib/crypto.ts:66-68`
+
+### Session Storage
+
+Sessions are persisted in the database with metadata:
+
+```sql
+CREATE TABLE sessions (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL,
+  device_id UUID NOT NULL,
+  token_hash TEXT NOT NULL,  -- SHA-256 of token
+  expires_at TIMESTAMP NOT NULL,
+  ip_address TEXT,
+  user_agent TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+See: `ave-server/src/routes/login.ts:260-267`
+
+**Session lifetime:**
+- Default: **30 days** from creation
+- Configurable per-deployment
+- No automatic renewal (requires re-authentication)
+
+See: `ave-server/src/routes/login.ts:259`
+
+## Session Creation
+
+### After Successful Authentication
+
+Sessions are created after passkey, trust code, or device approval login:
+
+```typescript
+// 1. Generate token
+const sessionToken = generateSessionToken();
+
+// 2. Calculate expiration
+const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+// 3. Store hashed token
+await db.insert(sessions).values({
+  userId: user.id,
+  deviceId: device.id,
+  tokenHash: hashSessionToken(sessionToken),
+  expiresAt,
+  ipAddress: request.ip,
+  userAgent: request.userAgent,
+});
+
+// 4. Set cookie
+setSessionCookie(c, sessionToken, expiresAt);
+
+// 5. Return token in response (for Bearer auth)
+return { sessionToken, ... };
+```
+
+See: `ave-server/src/routes/login.ts:257-269` and `ave-server/src/routes/login.ts:602-613`
+
+### Device Association
+
+Each session is tied to a specific device:
+
+- **Device fingerprinting** - Client generates stable fingerprint from browser/OS
+- **Device reuse** - Same fingerprint reuses existing device record
+- **Device tracking** - Each login updates `lastSeenAt` timestamp
+
+See: `ave-server/src/routes/login.ts:29-88`
+
+## Session Cookies
+
+### Cookie Configuration
+
+Ave sets HTTP-only cookies for browser-based authentication:
+
+```typescript
+setCookie(c, "ave_session", token, {
+  httpOnly: true,              // No JavaScript access
+  secure: isSecureContext(c),  // HTTPS-only in production
+  sameSite: secure ? "None" : "Lax",
+  path: "/",
+  domain: getCookieDomain(c),
+  expires: expiresAt,
+});
+```
+
+See: `ave-server/src/lib/session-cookie.ts:25-35`
+
+**Cookie name:** `ave_session`
+
+See: `ave-server/src/lib/session-cookie.ts:4`
+
+### Secure Context Detection
+
+Cookies adapt to deployment environment:
+
+```typescript
+function isSecureContext(c: Context): boolean {
+  // Allow override via environment variable
+  if (process.env.COOKIE_SECURE === "false") return false;
+  
+  // Check X-Forwarded-Proto header (for proxies)
+  const forwarded = c.req.header("x-forwarded-proto");
+  if (forwarded === "https") return true;
+  
+  // Check production domain
+  const host = c.req.header("host") || "";
+  if (host === "aveid.net" || host.endsWith(".aveid.net")) return true;
+  
+  return false;
+}
+```
+
+See: `ave-server/src/lib/session-cookie.ts:15-23`
+
+**Development:** `secure: false`, `sameSite: Lax`  
+**Production:** `secure: true`, `sameSite: None`
+
+### Domain Scoping
+
+Cookie domain is set for subdomain sharing:
+
+```typescript
+function getCookieDomain(c: Context): string | undefined {
+  // Use environment variable if set
+  const envDomain = process.env.COOKIE_DOMAIN;
+  if (envDomain) return envDomain;
+  
+  // Auto-detect for aveid.net
+  const host = c.req.header("host") || "";
+  if (host === "aveid.net" || host.endsWith(".aveid.net")) {
+    return ".aveid.net"; // Shares across all subdomains
+  }
+  
+  return undefined; // Use current domain only
+}
+```
+
+See: `ave-server/src/lib/session-cookie.ts:6-13`
+
+**Examples:**
+- `localhost:5173` → No domain (current host only)
+- `app.aveid.net` → `.aveid.net` (shared with api.aveid.net, etc.)
+- Custom deployment → `COOKIE_DOMAIN` environment variable
+
+## Session Validation
+
+### Authentication Middleware
+
+Protected routes use `requireAuth` middleware:
+
+```typescript
+app.use("*", requireAuth);
+
+app.get("/protected", async (c) => {
+  const user = c.get("user");  // Available after requireAuth
+  // ...
+});
+```
+
+See: `ave-server/src/routes/security.ts:23`
+
+### Token Extraction
+
+Middleware checks multiple token sources:
+
+1. **Authorization header:** `Bearer <token>`
+2. **Cookie header:** `ave_session=<token>`
+
+```typescript
+const authHeader = c.req.header("Authorization");
+const bearerToken = authHeader?.startsWith("Bearer ") 
+  ? authHeader.slice(7) 
+  : null;
+
+const cookieToken = parseCookie(c.req.header("Cookie"))["ave_session"];
+
+const token = bearerToken || cookieToken;
+```
+
+This allows both:
+- **Browser requests** (cookie-based)
+- **API clients** (Bearer token)
+
+### Validation Process
+
+```typescript
+// 1. Hash the provided token
+const tokenHash = hashSessionToken(token);
+
+// 2. Look up session by hash
+const [session] = await db
+  .select()
+  .from(sessions)
+  .where(eq(sessions.tokenHash, tokenHash))
+  .limit(1);
+
+// 3. Check if session exists and not expired
+if (!session || new Date() > session.expiresAt) {
+  return c.json({ error: "Invalid or expired session" }, 401);
+}
+
+// 4. Attach user to context
+c.set("user", { id: session.userId, deviceId: session.deviceId });
+```
+
+**Security properties:**
+- Token never stored in plaintext
+- Constant-time comparison (via database lookup)
+- Expiration checked on every request
+- No token renewal (prevents session fixation)
+
+## Session Termination
+
+### Explicit Logout
+
+User-initiated logout:
+
+```http
+POST /api/login/logout
+Authorization: Bearer <token>
+```
+
+```typescript
+// 1. Hash token
+const tokenHash = hashSessionToken(token);
+
+// 2. Delete session from database
+await db.delete(sessions).where(eq(sessions.tokenHash, tokenHash));
+
+// 3. Clear cookie
+clearSessionCookie(c);
+```
+
+See: `ave-server/src/routes/login.ts:742-764` and `ave-server/src/lib/session-cookie.ts:37-42`
+
+### Device Revocation
+
+Revoking a device terminates all its sessions:
+
+```http
+DELETE /api/devices/:deviceId
+```
+
+```typescript
+// Delete all sessions for this device
+await db.delete(sessions).where(eq(sessions.deviceId, deviceId));
+
+// Mark device as inactive
+await db.update(devices)
+  .set({ isActive: false })
+  .where(eq(devices.id, deviceId));
+```
+
+See: `TESTING.md:348-355`
+
+### Revoke All Devices
+
+Emergency logout from all devices:
+
+```http
+POST /api/devices/revoke-all
+```
+
+```typescript
+// Delete all sessions except current device
+await db.delete(sessions)
+  .where(
+    and(
+      eq(sessions.userId, user.id),
+      ne(sessions.deviceId, currentDeviceId)
+    )
+  );
+```
+
+See: `TESTING.md:352-355`
+
+### Automatic Expiration
+
+Sessions expire automatically after 30 days:
+
+- No background cleanup job required
+- Expiration checked during validation
+- Expired sessions remain in database until next cleanup
+- Optional: Add cron job to delete old sessions
+
+<Note>
+Expired sessions fail validation automatically. Consider periodic cleanup for database hygiene.
+</Note>
+
+## Security Features
+
+### Token Generation
+
+**Cryptographically secure randomness:**
+
+```typescript
+import { randomBytes } from "crypto";
+
+export function generateSessionToken(): string {
+  return randomBytes(32).toString("hex"); // 256 bits
+}
+```
+
+See: `ave-server/src/lib/crypto.ts:61-63`
+
+**Entropy:** 2^256 possible tokens (practically unguessable)
+
+### Hash-Only Storage
+
+**Server never stores plaintext tokens:**
+
+```typescript
+export function hashSessionToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+```
+
+See: `ave-server/src/lib/crypto.ts:66-68`
+
+**Benefits:**
+- Database breach doesn't expose valid tokens
+- Rainbow table attacks ineffective (random input)
+- Tokens can't be extracted even with database access
+
+### HTTP-Only Cookies
+
+**JavaScript cannot access session cookies:**
+
+```typescript
+setCookie(c, "ave_session", token, {
+  httpOnly: true,  // Blocks document.cookie access
+  // ...
+});
+```
+
+See: `ave-server/src/lib/session-cookie.ts:28`
+
+**Protection against:**
+- XSS attacks stealing tokens
+- Malicious scripts reading cookies
+- Client-side token exposure
+
+### HTTPS Enforcement
+
+**Secure cookies in production:**
+
+```typescript
+setCookie(c, "ave_session", token, {
+  secure: true,     // HTTPS-only transmission
+  sameSite: "None", // Cross-site requests allowed (with HTTPS)
+  // ...
+});
+```
+
+See: `ave-server/src/lib/session-cookie.ts:29-30`
+
+**Protection against:**
+- Man-in-the-middle attacks
+- Network sniffing
+- HTTP downgrade attacks
+
+### SameSite Protection
+
+**CSRF protection via SameSite:**
+
+- **Development:** `sameSite: Lax` (blocks cross-site POST)
+- **Production:** `sameSite: None` (allows cross-origin with HTTPS)
+
+See: `ave-server/src/lib/session-cookie.ts:30`
+
+<Warning>
+`sameSite: None` requires `secure: true`. Never use `sameSite: None` over HTTP.
+</Warning>
+
+### Device Binding
+
+Each session is bound to a device record:
+
+```typescript
+{
+  userId: "...",
+  deviceId: "...",        // Specific device
+  tokenHash: "...",
+  ipAddress: "1.2.3.4",   // Original IP
+  userAgent: "Chrome..."  // Original browser
+}
+```
+
+**Benefits:**
+- Track where sessions are used
+- Revoke access per-device
+- Detect suspicious activity (IP/UA changes)
+- Granular access control
+
+See: `ave-server/src/routes/login.ts:260-267`
+
+## Activity Logging
+
+### Session Creation Events
+
+All logins are logged with method and device info:
+
+```json
+{
+  "action": "login",
+  "details": {
+    "method": "passkey" | "trust_code" | "device_approval",
+    "deviceName": "Chrome on Mac",
+    "isNewDevice": true
+  },
+  "deviceId": "...",
+  "ipAddress": "1.2.3.4",
+  "userAgent": "Mozilla/5.0...",
+  "severity": "info" | "warning"
+}
+```
+
+See: `ave-server/src/routes/login.ts:272-280`
+
+**Severity levels:**
+- `info` - Passkey or device approval login
+- `warning` - Trust code login (recovery method)
+
+### Viewing Activity Logs
+
+Users can review all session activity:
+
+1. Navigate to **Dashboard → Activity Log**
+2. Filter by severity (Info, Warning, Danger)
+3. Search for specific actions ("login", "passkey", etc.)
+4. Review timestamps, IP addresses, and device info
+
+See: `TESTING.md:396-421`
+
+## Best Practices
+
+### For Application Developers
+
+1. **Always use HTTPS in production** - Set `COOKIE_SECURE=true`
+2. **Configure COOKIE_DOMAIN** - Enable subdomain sharing if needed
+3. **Set RP_ORIGIN correctly** - Must match actual frontend origin
+4. **Implement token rotation** - Consider shorter expiration with renewal
+5. **Add rate limiting** - Prevent brute-force session validation
+6. **Monitor failed logins** - Alert on suspicious authentication patterns
+7. **Clean up expired sessions** - Run periodic database cleanup
+
+### For End Users
+
+1. **Log out on shared devices** - Always click logout on public computers
+2. **Review active devices** - Check Dashboard → Devices regularly
+3. **Revoke suspicious sessions** - Use device revocation if anything looks wrong
+4. **Monitor activity log** - Watch for unexpected login locations/times
+5. **Use trusted networks** - Avoid public WiFi for sensitive operations
+
+## Troubleshooting
+
+### "Invalid or expired session" Error
+
+**Possible causes:**
+
+1. **Session expired** - More than 30 days since creation
+2. **Token revoked** - Device or session manually revoked
+3. **Token mismatch** - Browser sent wrong cookie or header
+4. **Database cleared** - Sessions deleted during maintenance
+
+**Solutions:**
+
+- Log in again to create new session
+- Check cookie is being sent (DevTools → Network → Cookies)
+- Verify `Authorization` header format: `Bearer <token>`
+- Clear cookies and try fresh login
+
+### Session Not Persisting
+
+**Possible causes:**
+
+1. **Cookie blocked** - Browser privacy settings blocking cookies
+2. **Domain mismatch** - Cookie domain doesn't match request domain
+3. **SameSite restrictions** - Cross-site cookie blocked
+4. **Secure flag mismatch** - Secure cookie over HTTP
+
+**Solutions:**
+
+- Check browser console for cookie warnings
+- Verify `COOKIE_DOMAIN` environment variable
+- Ensure HTTPS in production
+- Test with `COOKIE_SECURE=false` in development
+
+See: `ave-server/src/lib/session-cookie.ts:6-23`
+
+### Session Works on Postman but Not Browser
+
+**Likely cause:** Cookie configuration issue
+
+1. Check if browser blocks third-party cookies
+2. Verify `sameSite` attribute matches context
+3. Ensure `domain` attribute is correct
+4. Try using `Authorization: Bearer` header instead
+
+### Multiple Sessions for Same Device
+
+If the same device creates multiple session records:
+
+**Possible causes:**
+
+1. **Fingerprint not sent** - Client not providing `fingerprint` field
+2. **Fingerprint changing** - Browser generates different fingerprint each time
+3. **Device record deleted** - Previous device manually removed
+
+**Impact:** Creates duplicate devices in dashboard, but doesn't affect functionality
+
+**Solution:** Ensure client sends consistent `fingerprint` in device info
+
+See: `ave-server/src/routes/login.ts:34-45`
+
+## Environment Variables
+
+### Session Configuration
+
+```bash
+# Cookie security
+COOKIE_SECURE=true|false  # Force secure flag (default: auto-detect)
+COOKIE_DOMAIN=.example.com  # Cookie domain (default: auto-detect)
+
+# WebAuthn
+RP_ID=example.com          # Relying Party ID for passkeys
+RP_ORIGIN=https://example.com  # Expected origin for WebAuthn
+RP_NAME="Ave"              # Display name for passkeys
+```
+
+See: `ave-server/src/lib/session-cookie.ts:8,16`
+
+## Related Topics
+
+- [Trust Codes](/security/trust-codes) - Recovery with trust codes
+- [Recovery Methods](/security/recovery-methods) - All authentication methods
+- [Best Practices](/security/best-practices) - Security recommendations

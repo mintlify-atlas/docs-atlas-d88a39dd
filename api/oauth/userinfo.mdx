@@ -1,0 +1,207 @@
+---
+title: 'UserInfo Endpoint'
+api: 'GET /api/oauth/userinfo'
+description: 'Retrieve user profile information for an authenticated user'
+---
+
+The UserInfo endpoint returns claims about the authenticated user based on the granted scopes. It supports both opaque access tokens and JWT access tokens.
+
+## Authentication
+
+Requires a valid access token in the `Authorization` header:
+
+```
+Authorization: Bearer <access_token>
+```
+
+You can use either:
+- The opaque `access_token` from the token response
+- The `access_token_jwt` from the token response
+
+## Response
+
+The response contains user claims based on the granted scopes.
+
+<ResponseField name="sub" type="string" required>
+  Subject identifier - the identity ID
+</ResponseField>
+
+<ResponseField name="iss" type="string">
+  Issuer identifier (e.g., `https://aveid.net`)
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Display name (requires `profile` scope)
+</ResponseField>
+
+<ResponseField name="preferred_username" type="string">
+  User handle (requires `profile` scope)
+</ResponseField>
+
+<ResponseField name="picture" type="string">
+  Avatar URL (requires `profile` scope)
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Email address (requires `email` scope)
+</ResponseField>
+
+<ResponseField name="user_id" type="string">
+  Ave user ID (requires `user_id` scope and app must be allowed to access it)
+</ResponseField>
+
+## Scope Requirements
+
+| Claim | Required Scope | Notes |
+|-------|----------------|-------|
+| `sub` | (always included) | Identity ID |
+| `iss` | (always included) | Issuer URL |
+| `name` | `profile` | Display name |
+| `preferred_username` | `profile` | User handle |
+| `picture` | `profile` | Avatar URL |
+| `email` | `email` | Email address |
+| `user_id` | `user_id` | Only if app has `allowUserIdScope` |
+
+## Example Request
+
+<CodeGroup>
+```typescript SDK
+import { fetchUserInfo } from '@ave-id/sdk';
+
+const userInfo = await fetchUserInfo(
+  {
+    clientId: 'your_client_id',
+    redirectUri: 'https://yourapp.com/callback',
+  },
+  accessToken
+);
+
+console.log(userInfo.sub); // Identity ID
+console.log(userInfo.name); // Display name
+console.log(userInfo.email); // Email
+```
+
+```typescript Raw
+const response = await fetch('https://api.aveid.net/api/oauth/userinfo', {
+  headers: {
+    Authorization: `Bearer ${accessToken}`,
+  },
+});
+
+const userInfo = await response.json();
+```
+
+```bash cURL
+curl -X GET 'https://api.aveid.net/api/oauth/userinfo' \
+  -H 'Authorization: Bearer eyJhbGci...'
+```
+</CodeGroup>
+
+## Example Response
+
+### With profile and email scopes
+
+```json
+{
+  "sub": "550e8400-e29b-41d4-a716-446655440000",
+  "iss": "https://aveid.net",
+  "name": "Alice Smith",
+  "preferred_username": "alice",
+  "picture": "https://cdn.aveid.net/avatars/alice.jpg",
+  "email": "alice@example.com"
+}
+```
+
+### With user_id scope (if allowed)
+
+```json
+{
+  "sub": "550e8400-e29b-41d4-a716-446655440000",
+  "iss": "https://aveid.net",
+  "name": "Alice Smith",
+  "preferred_username": "alice",
+  "picture": "https://cdn.aveid.net/avatars/alice.jpg",
+  "email": "alice@example.com",
+  "user_id": "usr_7b9c2f1e3a6d8h4j"
+}
+```
+
+### Minimal response (no optional scopes)
+
+```json
+{
+  "sub": "550e8400-e29b-41d4-a716-446655440000",
+  "iss": "https://aveid.net"
+}
+```
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error code:
+  - `unauthorized` - Missing or invalid Authorization header
+  - `invalid_token` - Access token is invalid or expired
+</ResponseField>
+
+### Example Errors
+
+```json Missing Token
+{
+  "error": "unauthorized"
+}
+```
+
+```json Expired Token
+{
+  "error": "invalid_token"
+}
+```
+
+## Token Types
+
+The endpoint accepts both token types returned from the token endpoint:
+
+1. **Opaque Access Token** (`access_token`)
+   - Stored in-memory on the server
+   - Validated against internal store
+
+2. **JWT Access Token** (`access_token_jwt`)
+   - Self-contained signed JWT
+   - Verified using public JWK from `/.well-known/jwks.json`
+   - Contains claims: `sub`, `sid`, `cid`, `scope`, `aud`, `iss`, `exp`, `iat`
+
+<Tip>
+  Use the JWT access token for stateless verification across distributed systems. Use the opaque token for server-side sessions.
+</Tip>
+
+## Integration Example
+
+Complete flow from authorization to fetching user info:
+
+```typescript
+import { exchangeCode, fetchUserInfo } from '@ave-id/sdk';
+
+// 1. Exchange authorization code for tokens
+const tokens = await exchangeCode(
+  {
+    clientId: 'your_client_id',
+    redirectUri: 'https://yourapp.com/callback',
+  },
+  {
+    code: authorizationCode,
+    codeVerifier: codeVerifier,
+  }
+);
+
+// 2. Fetch user info
+const userInfo = await fetchUserInfo(
+  {
+    clientId: 'your_client_id',
+    redirectUri: 'https://yourapp.com/callback',
+  },
+  tokens.access_token
+);
+
+// 3. Use user info
+console.log(`Welcome, ${userInfo.name}!`);
+```

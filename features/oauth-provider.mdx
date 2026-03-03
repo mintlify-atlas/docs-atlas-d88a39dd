@@ -1,0 +1,525 @@
+---
+title: "OAuth 2.0 Provider"
+description: "Ave is a full OAuth 2.0 and OpenID Connect identity provider with E2EE support"
+---
+
+Ave implements **OAuth 2.0** and **OpenID Connect (OIDC)** standards, allowing third-party applications to authenticate users and access their identity information. Ave also extends OAuth with **end-to-end encryption** for apps that support it.
+
+## Supported Grant Types
+
+Ave supports three OAuth 2.0 grant types:
+
+1. **Authorization Code** (with PKCE) - For web and mobile apps
+2. **Refresh Token** - For long-lived access without re-authentication
+3. **Token Exchange** (RFC 8693) - For connector/delegation flows
+
+## Authorization Code Flow
+
+The standard OAuth flow for web applications:
+
+<Steps>
+  <Step title="Redirect to Ave">
+    Your app redirects users to Ave's authorization endpoint with your `client_id`, `redirect_uri`, and requested scopes.
+  </Step>
+  
+  <Step title="User authenticates">
+    User logs in with their passkey (if not already logged in) and selects which identity to use.
+  </Step>
+  
+  <Step title="Authorization screen">
+    User reviews what data your app is requesting and approves (or denies) the authorization.
+  </Step>
+  
+  <Step title="Redirect with code">
+    Ave redirects back to your app with an authorization code in the query string.
+  </Step>
+  
+  <Step title="Exchange for tokens">
+    Your app exchanges the code for an access token, refresh token, and ID token.
+  </Step>
+</Steps>
+
+### Authorization Request
+
+```bash
+GET https://aveid.net/signin?client_id=app_abc123&redirect_uri=https://yourapp.com/callback&scope=openid+profile+email&state=random_state&code_challenge=abc...&code_challenge_method=S256
+```
+
+Parameters:
+- `client_id`: Your app's client ID (required)
+- `redirect_uri`: Must match one of your registered URIs (required)
+- `scope`: Space-separated scopes (default: `openid profile email`)
+- `state`: Random string to prevent CSRF (recommended)
+- `code_challenge`: PKCE challenge (recommended for public clients)
+- `code_challenge_method`: `S256` or `plain` (required if using PKCE)
+
+From `oauth.ts:170-390`, Ave:
+
+1. Validates the `client_id` and `redirect_uri`
+2. Checks if scopes are allowed for your app
+3. Verifies the identity belongs to the authenticated user
+4. Creates or updates an authorization record
+5. Generates an authorization code (expires in 10 minutes)
+
+```typescript
+// From oauth.ts:352-368
+const code = generateAuthCode();
+
+authorizationCodes.set(code, {
+  userId: user.id,
+  appId: oauthApp.id,
+  identityId,
+  redirectUri,
+  scope,
+  expiresAt: Date.now() + 10 * 60 * 1000,
+  codeChallenge,
+  codeChallengeMethod,
+  encryptedAppKey: finalEncryptedAppKey,
+  nonce: nonce || undefined,
+});
+```
+
+### Token Request
+
+Exchange authorization code for tokens:
+
+```bash
+POST https://api.aveid.net/api/oauth/token
+Content-Type: application/json
+
+{
+  "grantType": "authorization_code",
+  "code": "abc123...",
+  "redirectUri": "https://yourapp.com/callback",
+  "clientId": "app_abc123",
+  "clientSecret": "secret_xyz" // Or use PKCE code_verifier
+}
+```
+
+Response:
+
+```json
+{
+  "access_token": "opaque_token_abc123",
+  "access_token_jwt": "eyJhbGc...", // JWT for resource servers
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_token": "rt_def456",
+  "id_token": "eyJhbGc...", // OIDC ID token
+  "scope": "openid profile email",
+  "encrypted_app_key": "base64-encrypted-key", // For E2EE apps
+  "user": {
+    "id": "identity_123",
+    "handle": "alice",
+    "displayName": "Alice Smith",
+    "email": "alice@example.com",
+    "avatarUrl": "https://cdn.aveid.net/avatars/..."
+  }
+}
+```
+
+From `oauth.ts:768-864`, the token endpoint:
+
+1. Validates the authorization code hasn't expired
+2. Verifies PKCE code verifier or client secret
+3. Generates access token (opaque) and JWT access token
+4. Generates ID token (if `openid` scope requested)
+5. Generates refresh token (if `offline_access` scope requested)
+6. Returns encrypted app key (if E2EE app)
+
+### PKCE Flow
+
+For public clients (mobile, SPA), use **PKCE** instead of client secrets:
+
+```typescript
+// 1. Generate code verifier (client-side)
+const codeVerifier = base64url(crypto.randomBytes(32));
+
+// 2. Generate code challenge
+const challenge = crypto.createHash('sha256')
+  .update(codeVerifier)
+  .digest('base64url');
+
+// 3. Authorization request
+window.location.href = `https://aveid.net/signin?` +
+  `client_id=app_123&` +
+  `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+  `code_challenge=${challenge}&` +
+  `code_challenge_method=S256`;
+
+// 4. Token request (after redirect)
+await fetch('https://api.aveid.net/api/oauth/token', {
+  method: 'POST',
+  body: JSON.stringify({
+    grantType: 'authorization_code',
+    code: authorizationCode,
+    redirectUri,
+    clientId: 'app_123',
+    codeVerifier // Instead of client secret
+  })
+});
+```
+
+From `oauth.ts:722-740`, Ave verifies PKCE:
+
+```typescript
+if (authCode.codeChallenge) {
+  if (!codeVerifier) {
+    return c.json({ error: "Code verifier required" }, 400);
+  }
+  
+  let computedChallenge: string;
+  if (authCode.codeChallengeMethod === "S256") {
+    const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(codeVerifier));
+    computedChallenge = Buffer.from(hash).toString("base64url");
+  } else {
+    computedChallenge = codeVerifier;
+  }
+  
+  if (computedChallenge !== authCode.codeChallenge) {
+    return c.json({ error: "Code verifier mismatch" }, 400);
+  }
+}
+```
+
+## Scopes
+
+Ave supports these standard scopes:
+
+| Scope | Description | Provides |
+|-------|-------------|----------|
+| `openid` | OIDC authentication | `sub` claim in ID token |
+| `profile` | User profile | `name`, `preferred_username`, `picture` |
+| `email` | Email address | `email`, `email_verified` |
+| `offline_access` | Refresh tokens | Long-lived refresh token |
+| `user_id` | Ave user ID | `user_id` field (opt-in only) |
+
+From `oauth.ts:221-226`, scopes are validated:
+
+```typescript
+const requestedScopes = parseScopes(scope);
+const allowedScopes = (oauthApp.allowedScopes || []) as string[];
+const invalidScopes = requestedScopes.filter((s) => !allowedScopes.includes(s));
+if (invalidScopes.length > 0) {
+  return c.json({ error: "invalid_scope" }, 400);
+}
+```
+
+<Info>
+  The `user_id` scope requires explicit opt-in from the app developer. It exposes the internal Ave user ID, which is stable across identity changes.
+</Info>
+
+## ID Tokens (OIDC)
+
+When `openid` scope is requested, Ave returns an ID token:
+
+```json
+{
+  "iss": "https://aveid.net",
+  "sub": "identity_123",
+  "aud": "app_abc123",
+  "exp": 1704124800,
+  "iat": 1704121200,
+  "auth_time": 1704121200,
+  "azp": "app_abc123",
+  "sid": "user_abc123",
+  "nonce": "random_nonce",
+  "name": "Alice Smith",
+  "preferred_username": "alice",
+  "email": "alice@example.com",
+  "picture": "https://cdn.aveid.net/avatars/..."
+}
+```
+
+From `oauth.ts:828-843`, the ID token is signed with RS256:
+
+```typescript
+const idToken = await signJwt({
+  iss: getIssuer(),
+  sub: subject,
+  aud: oauthApp.clientId,
+  exp: expiresAt,
+  iat: issuedAt,
+  auth_time: issuedAt,
+  azp: oauthApp.clientId,
+  sid: authCode.userId,
+  nonce: authCode.nonce,
+  name: hasScope(authCode.scope, "profile") ? identity?.displayName : undefined,
+  preferred_username: hasScope(authCode.scope, "profile") ? identity?.handle : undefined,
+  email: hasScope(authCode.scope, "email") ? identity?.email : undefined,
+  picture: hasScope(authCode.scope, "profile") ? identity?.avatarUrl : undefined,
+});
+```
+
+## Refresh Tokens
+
+Refresh tokens allow apps to obtain new access tokens without user interaction:
+
+```bash
+POST https://api.aveid.net/api/oauth/token
+Content-Type: application/json
+
+{
+  "grantType": "refresh_token",
+  "refreshToken": "rt_abc123",
+  "clientId": "app_abc123",
+  "clientSecret": "secret_xyz" // Optional for public clients
+}
+```
+
+From `oauth.ts:563-689`, Ave:
+
+1. Verifies the refresh token hasn't been revoked or expired
+2. Detects refresh token reuse (security feature)
+3. Generates new access token and ID token
+4. **Rotates** the refresh token (old one is revoked)
+
+```typescript
+// From oauth.ts:626-638
+const rotatedRefreshToken = generateRefreshToken();
+await db.update(oauthRefreshTokens)
+  .set({ revokedAt: new Date() })
+  .where(eq(oauthRefreshTokens.id, storedRefresh.id));
+
+await db.insert(oauthRefreshTokens).values({
+  userId: storedRefresh.userId,
+  tokenHash: hashToken(rotatedRefreshToken),
+  scope: storedRefresh.scope,
+  expiresAt: new Date(Date.now() + refreshTokenTtl * 1000),
+  rotatedFromId: storedRefresh.id,
+});
+```
+
+<Warning>
+  Refresh tokens are **single-use** and are automatically rotated. If a refresh token is reused, all refresh tokens for that app are revoked (indicates token theft).
+</Warning>
+
+## End-to-End Encryption (E2EE)
+
+Ave extends OAuth with E2EE support for privacy-focused apps.
+
+### How E2EE Works in OAuth
+
+1. **App registration**: Developer marks app as `supportsE2ee: true`
+2. **User authorization**: Client generates app-specific key, encrypts with user's master key
+3. **Token exchange**: Ave returns the encrypted app key
+4. **Decryption**: User decrypts app key locally with their master key
+5. **Data encryption**: App uses decrypted key to encrypt user data
+
+From `oauth.ts:252-254`:
+
+```typescript
+if (oauthApp.supportsE2ee && !encryptedAppKey && !existingAuth?.encryptedAppKey) {
+  return c.json({ error: "E2EE app requires encryptedAppKey" }, 400);
+}
+```
+
+And from `oauth.ts:859-862`:
+
+```typescript
+if (oauthApp.supportsE2ee && authCode.encryptedAppKey) {
+  response.encrypted_app_key = authCode.encryptedAppKey;
+}
+```
+
+### Client Implementation
+
+```typescript
+// 1. Generate app key (client-side)
+const appKey = await crypto.subtle.generateKey(
+  { name: 'AES-GCM', length: 256 },
+  true,
+  ['encrypt', 'decrypt']
+);
+
+// 2. Encrypt with user's master key
+const masterKey = await loadMasterKey();
+const iv = crypto.getRandomValues(new Uint8Array(12));
+const encryptedAppKey = await crypto.subtle.encrypt(
+  { name: 'AES-GCM', iv },
+  masterKey,
+  await crypto.subtle.exportKey('raw', appKey)
+);
+
+// 3. Include in authorization request
+await fetch('https://api.aveid.net/api/oauth/authorize', {
+  method: 'POST',
+  body: JSON.stringify({
+    clientId: 'app_123',
+    redirectUri: 'https://yourapp.com/callback',
+    scope: 'openid profile',
+    identityId: 'identity_123',
+    encryptedAppKey: btoa(String.fromCharCode(...new Uint8Array(encryptedAppKey)))
+  })
+});
+
+// 4. After token exchange, decrypt app key
+const response = await exchangeCodeForTokens(code);
+if (response.encrypted_app_key) {
+  const appKeyBytes = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    masterKey,
+    base64ToArrayBuffer(response.encrypted_app_key)
+  );
+  
+  const appKey = await crypto.subtle.importKey(
+    'raw',
+    appKeyBytes,
+    { name: 'AES-GCM' },
+    true,
+    ['encrypt', 'decrypt']
+  );
+  
+  // Use app key to encrypt user data
+  await encryptUserData(appKey, userData);
+}
+```
+
+<Note>
+  Ave never sees the unencrypted app key or user data. Apps can store encrypted data on Ave's servers or their own, knowing Ave cannot decrypt it.
+</Note>
+
+## Connector Pattern (Token Exchange)
+
+Ave supports **OAuth 2.0 Token Exchange** (RFC 8693) for connector/delegation flows:
+
+```bash
+POST https://api.aveid.net/api/oauth/token
+Content-Type: application/json
+
+{
+  "grantType": "urn:ietf:params:oauth:grant-type:token-exchange",
+  "subjectToken": "access_token_from_app_a",
+  "requestedResource": "google_drive",
+  "requestedScope": "drive.read drive.write",
+  "clientId": "app_abc123",
+  "clientSecret": "secret_xyz"
+}
+```
+
+From `oauth.ts:420-560`, this allows App A to request access to a connector resource (like Google Drive) on behalf of the user:
+
+1. User authorizes App A to access their Ave identity
+2. User grants App A permission to access connector resource (e.g., Google Drive)
+3. App A exchanges its access token for a delegated token scoped to the connector
+4. App A uses delegated token to call connector APIs
+
+Example delegation grant:
+
+```typescript
+// From oauth.ts:309-330
+const [newGrant] = await db.insert(oauthDelegationGrants).values({
+  userId: user.id,
+  identityId,
+  sourceAppId: oauthApp.id, // App requesting delegation
+  targetResourceId: resource.id, // Connector resource
+  scope: requestedConnectorScopes.join(" "),
+  communicationMode: "user_present" | "background",
+}).returning();
+```
+
+## OpenID Connect Discovery
+
+Ave provides standard OIDC discovery endpoints:
+
+### Well-Known Configuration
+
+```bash
+GET https://api.aveid.net/.well-known/openid-configuration
+```
+
+Response:
+
+```json
+{
+  "issuer": "https://aveid.net",
+  "authorization_endpoint": "https://aveid.net/signin",
+  "token_endpoint": "https://api.aveid.net/api/oauth/token",
+  "userinfo_endpoint": "https://api.aveid.net/api/oauth/userinfo",
+  "jwks_uri": "https://api.aveid.net/.well-known/jwks.json",
+  "scopes_supported": ["openid", "profile", "email", "offline_access", "user_id"],
+  "response_types_supported": ["code"],
+  "grant_types_supported": ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"],
+  "subject_types_supported": ["public"],
+  "id_token_signing_alg_values_supported": ["RS256"],
+  "token_endpoint_auth_methods_supported": ["client_secret_post", "none"]
+}
+```
+
+### JWKS (Public Keys)
+
+```bash
+GET https://api.aveid.net/.well-known/jwks.json
+```
+
+Returns the public key for verifying ID tokens and JWT access tokens.
+
+## UserInfo Endpoint
+
+Get user information using an access token:
+
+```bash
+GET https://api.aveid.net/api/oauth/userinfo
+Authorization: Bearer access_token_abc123
+```
+
+Response:
+
+```json
+{
+  "sub": "identity_123",
+  "iss": "https://aveid.net",
+  "name": "Alice Smith",
+  "preferred_username": "alice",
+  "email": "alice@example.com",
+  "picture": "https://cdn.aveid.net/avatars/...",
+  "user_id": "user_abc123" // If user_id scope granted
+}
+```
+
+From `oauth.ts:894-963`, the endpoint:
+
+1. Validates the access token (opaque or JWT)
+2. Returns identity information based on granted scopes
+3. Includes `user_id` if the app has `allowUserIdScope` enabled
+
+## Managing Authorizations
+
+Users can view and revoke app authorizations:
+
+### List Authorizations
+
+```bash
+GET https://api.aveid.net/api/oauth/authorizations
+Authorization: Bearer session_token
+```
+
+Returns all apps you've authorized.
+
+### Revoke Authorization
+
+```bash
+DELETE https://api.aveid.net/api/oauth/authorizations/:authId
+Authorization: Bearer session_token
+```
+
+From `oauth.ts:1029-1064`, this:
+
+- Deletes the authorization record
+- Invalidates all access/refresh tokens for that app
+- Logs the revocation in activity log
+
+<Warning>
+  Revoking an app's authorization immediately invalidates all its tokens. The app will need to re-request authorization.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Digital Signing" icon="signature" href="/features/digital-signing">
+    Sign documents with OAuth-authorized apps
+  </Card>
+  <Card title="End-to-End Encryption" icon="lock" href="/features/end-to-end-encryption">
+    Understand E2EE in OAuth flows
+  </Card>
+</CardGroup>

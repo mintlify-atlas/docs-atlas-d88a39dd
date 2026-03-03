@@ -1,0 +1,423 @@
+---
+title: 'OAuth Scopes'
+description: 'Available OAuth scopes and permissions for Ave integration'
+---
+
+## Overview
+
+OAuth scopes define what information and capabilities your app can access. Ave supports standard OpenID Connect scopes plus additional scopes for extended functionality.
+
+## Standard Scopes
+
+These scopes are available to all OAuth apps:
+
+### openid
+
+<ParamField path="openid" type="scope">
+  Required for OpenID Connect authentication. Grants access to the `sub` (subject) claim in the ID token.
+  
+  **Grants access to:**
+  - Identity ID (`sub` claim)
+  - Issuer information (`iss` claim)
+  
+  **ID Token Claims:**
+  ```json
+  {
+    "iss": "https://aveid.net",
+    "sub": "identity-uuid",
+    "aud": "your_client_id",
+    "exp": 1234567890,
+    "iat": 1234567890,
+    "sid": "user-uuid"
+  }
+  ```
+</ParamField>
+
+### profile
+
+<ParamField path="profile" type="scope">
+  Grants access to the user's basic profile information.
+  
+  **Grants access to:**
+  - Display name
+  - Handle (username)
+  - Avatar URL
+  
+  **ID Token Claims:**
+  ```json
+  {
+    "name": "John Doe",
+    "preferred_username": "john@example.com",
+    "picture": "https://avatars.aveid.net/..."
+  }
+  ```
+  
+  **UserInfo Response:**
+  ```json
+  {
+    "sub": "identity-uuid",
+    "name": "John Doe",
+    "preferred_username": "john@example.com",
+    "picture": "https://avatars.aveid.net/..."
+  }
+  ```
+</ParamField>
+
+### email
+
+<ParamField path="email" type="scope">
+  Grants access to the user's email address.
+  
+  **Grants access to:**
+  - Email address
+  
+  **ID Token Claims:**
+  ```json
+  {
+    "email": "user@example.com"
+  }
+  ```
+  
+  **UserInfo Response:**
+  ```json
+  {
+    "sub": "identity-uuid",
+    "email": "user@example.com"
+  }
+  ```
+</ParamField>
+
+### offline_access
+
+<ParamField path="offline_access" type="scope">
+  Grants a refresh token for obtaining new access tokens without user interaction.
+  
+  **Grants access to:**
+  - Refresh token in token response
+  
+  **Token Response:**
+  ```json
+  {
+    "access_token": "...",
+    "refresh_token": "rt_a1b2c3d4e5f6...",
+    "expires_in": 3600
+  }
+  ```
+  
+  **Use cases:**
+  - Background data sync
+  - Long-lived sessions
+  - Mobile applications
+</ParamField>
+
+## Extended Scopes
+
+These scopes require explicit app configuration:
+
+### user_id
+
+<ParamField path="user_id" type="scope">
+  Grants access to the user's permanent user ID (separate from identity ID).
+  
+  **Requirements:**
+  - Your OAuth app must have `allowUserIdScope: true`
+  - User must authorize this scope
+  
+  **Grants access to:**
+  - User UUID (permanent across all identities)
+  
+  **Token Response:**
+  ```json
+  {
+    "access_token": "...",
+    "user_id": "user-uuid"
+  }
+  ```
+  
+  **Access Token JWT Claims:**
+  ```json
+  {
+    "sub": "identity-uuid",
+    "sid": "user-uuid",
+    "uid": "user-uuid",
+    "scope": "openid profile email user_id"
+  }
+  ```
+  
+  **UserInfo Response:**
+  ```json
+  {
+    "sub": "identity-uuid",
+    "user_id": "user-uuid"
+  }
+  ```
+  
+  <Warning>
+    The `user_id` is a permanent identifier that persists across identity changes. Use this scope only if you need to track users across multiple Ave identities.
+  </Warning>
+</ParamField>
+
+## Scope Validation
+
+Ave validates scopes at multiple points:
+
+<Steps>
+  <Step title="Authorization request">
+    When the user authorizes your app, Ave checks that all requested scopes are in your app's `allowedScopes` configuration.
+    
+    ```json
+    {
+      "error": "invalid_scope",
+      "error_description": "Invalid scopes: custom_scope"
+    }
+    ```
+  </Step>
+  
+  <Step title="Token exchange">
+    When exchanging an authorization code, Ave verifies the scopes again to prevent tampering.
+  </Step>
+  
+  <Step title="Token refresh">
+    When refreshing tokens, the original scopes are maintained. You cannot request additional scopes during refresh.
+  </Step>
+  
+  <Step title="Delegation">
+    When exchanging tokens for delegation, Ave validates that requested scopes are available on the target resource and don't exceed the delegation grant.
+  </Step>
+</Steps>
+
+## Requesting Scopes
+
+### Authorization Request
+
+Request scopes when building the authorization URL:
+
+```typescript
+import { buildAuthorizeUrl } from 'ave-sdk';
+
+const authUrl = buildAuthorizeUrl(
+  {
+    clientId: 'your_client_id',
+    redirectUri: 'https://yourapp.com/callback'
+  },
+  {
+    scope: ['openid', 'profile', 'email', 'offline_access'],
+    codeChallenge,
+    codeChallengeMethod: 'S256'
+  }
+);
+```
+
+### Default Scopes
+
+If no scopes are specified:
+- Default scopes: `["openid", "profile", "email"]`
+- Configured in your OAuth app's `allowedScopes`
+
+### Space-Separated Format
+
+Scopes can also be provided as a space-separated string:
+
+```typescript
+const authUrl = buildAuthorizeUrl(config, {
+  scope: 'openid profile email offline_access'
+});
+```
+
+## Checking Granted Scopes
+
+### From Token Response
+
+```typescript
+const tokens = await exchangeCode(config, { code, codeVerifier });
+
+console.log(tokens.scope);
+// "openid profile email offline_access"
+
+const scopes = tokens.scope.split(' ');
+if (scopes.includes('email')) {
+  console.log('Email access granted');
+}
+```
+
+### From Access Token JWT
+
+```typescript
+import { decodeJwt } from 'jose';
+
+const payload = decodeJwt(tokens.access_token_jwt);
+
+const hasEmail = payload.scope.split(' ').includes('email');
+const hasUserId = payload.uid !== undefined;
+```
+
+### From UserInfo Endpoint
+
+```typescript
+import { fetchUserInfo } from 'ave-sdk';
+
+const userInfo = await fetchUserInfo(config, accessToken);
+
+// If email is undefined, 'email' scope was not granted
+if (userInfo.email) {
+  console.log('Email:', userInfo.email);
+} else {
+  console.log('Email scope not granted');
+}
+```
+
+## Scope Combinations
+
+### Recommended Combinations
+
+<CardGroup cols={2}>
+  <Card title="Basic Profile" icon="user">
+    ```typescript
+    ['openid', 'profile']
+    ```
+    Minimal user information for display purposes.
+  </Card>
+  
+  <Card title="Full Profile" icon="address-card">
+    ```typescript
+    ['openid', 'profile', 'email']
+    ```
+    Complete user profile with contact information.
+  </Card>
+  
+  <Card title="Long-Lived Session" icon="clock">
+    ```typescript
+    ['openid', 'profile', 'email', 'offline_access']
+    ```
+    Full profile with refresh token for background access.
+  </Card>
+  
+  <Card title="User Tracking" icon="fingerprint">
+    ```typescript
+    ['openid', 'profile', 'email', 'user_id', 'offline_access']
+    ```
+    Full access with permanent user identifier.
+  </Card>
+</CardGroup>
+
+## Custom Resource Scopes
+
+When creating delegation grants to other apps, you request custom scopes defined by the target resource:
+
+```typescript
+import { buildConnectorUrl } from 'ave-sdk';
+
+const connectorUrl = buildConnectorUrl(
+  config,
+  {
+    resource: 'calendar-api',
+    scope: 'read:events write:events delete:events',  // Custom scopes
+    mode: 'user_present'
+  }
+);
+```
+
+**Custom scope format:**
+- Resource-specific scopes use the format: `action:resource`
+- Examples: `read:events`, `write:data`, `admin:settings`
+- Defined by each OAuth resource/app independently
+- Validated against the resource's `scopes` configuration
+
+## Scope Best Practices
+
+<AccordionGroup>
+  <Accordion title="Request minimal scopes">
+    Only request scopes your app actually needs. Users are more likely to authorize apps that request fewer permissions.
+    
+    ```typescript
+    // Good: Only what you need
+    scope: ['openid', 'profile']
+    
+    // Bad: Requesting everything
+    scope: ['openid', 'profile', 'email', 'user_id', 'offline_access']
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle missing scopes gracefully">
+    Users may deny certain scopes. Your app should work with reduced functionality:
+    
+    ```typescript
+    const tokens = await exchangeCode(config, { code, codeVerifier });
+    
+    if (!tokens.scope.includes('email')) {
+      console.warn('Email not available - falling back to username');
+      displayName = tokens.user.handle;
+    } else {
+      displayName = tokens.user.email;
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Document required scopes">
+    Clearly document which scopes your app requires for different features:
+    
+    ```typescript
+    // Required scopes by feature:
+    const SCOPES = {
+      basic: ['openid', 'profile'],
+      email_notifications: ['openid', 'profile', 'email'],
+      background_sync: ['openid', 'profile', 'offline_access'],
+      user_analytics: ['openid', 'profile', 'user_id']
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Always include 'openid'">
+    For OIDC compliance and ID token issuance, always include the `openid` scope:
+    
+    ```typescript
+    // Good
+    scope: ['openid', 'profile', 'email']
+    
+    // Bad: No ID token will be issued
+    scope: ['profile', 'email']
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Scope Reference Table
+
+| Scope | Type | Description | Grants |
+|-------|------|-------------|--------|
+| `openid` | Standard | OIDC authentication | ID token, identity ID |
+| `profile` | Standard | User profile | Display name, handle, avatar |
+| `email` | Standard | Email address | User's email |
+| `offline_access` | Standard | Refresh token | Long-lived access |
+| `user_id` | Extended | Permanent user ID | User UUID across identities |
+
+## Discovery
+
+Query supported scopes via the OIDC discovery endpoint:
+
+```bash
+curl https://api.aveid.net/.well-known/openid-configuration
+```
+
+```json
+{
+  "scopes_supported": [
+    "openid",
+    "profile",
+    "email",
+    "offline_access",
+    "user_id"
+  ]
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authorization Flow" icon="arrow-right" href="/oauth/authorization-flow">
+    Learn how to request scopes in the authorization flow
+  </Card>
+  
+  <Card title="Token Exchange" icon="key" href="/oauth/token-exchange">
+    Understand scope validation in token operations
+  </Card>
+</CardGroup>

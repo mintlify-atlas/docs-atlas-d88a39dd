@@ -1,0 +1,166 @@
+---
+title: 'OAuth Integration Overview'
+description: 'Get started with Ave OAuth/OIDC integration for user authentication and authorization'
+---
+
+## Introduction
+
+Ave provides a complete OAuth 2.0 and OpenID Connect (OIDC) implementation that allows your application to:
+
+- Authenticate users with their Ave identity
+- Access user profile information
+- Obtain long-lived refresh tokens
+- Implement secure app-to-app delegation
+- Support end-to-end encryption (E2EE) for sensitive data
+
+## Discovery Endpoints
+
+Ave exposes standard OIDC discovery endpoints:
+
+```bash
+# OpenID Configuration
+GET https://api.aveid.net/.well-known/openid-configuration
+
+# JWKS (JSON Web Key Set)
+GET https://api.aveid.net/.well-known/jwks.json
+
+# WebFinger
+GET https://api.aveid.net/.well-known/webfinger?resource={resource}
+```
+
+## Supported Features
+
+### Grant Types
+
+Ave supports the following OAuth 2.0 grant types:
+
+- `authorization_code` - Standard authorization code flow
+- `refresh_token` - Token refresh with automatic rotation
+- `urn:ietf:params:oauth:grant-type:token-exchange` - App-to-app delegation (RFC 8693)
+
+### Security Features
+
+- **PKCE (Proof Key for Code Exchange)** - Required for public clients
+- **Token rotation** - Refresh tokens are automatically rotated on use
+- **Reuse detection** - All tokens revoked if refresh token reuse is detected
+- **E2EE support** - Encrypted app keys for end-to-end encryption
+
+## Installation
+
+Install the Ave SDK to get started:
+
+```bash npm
+npm install ave-sdk
+```
+
+```bash yarn
+yarn add ave-sdk
+```
+
+```bash pnpm
+pnpm add ave-sdk
+```
+
+## Quick Start
+
+Here's a basic OAuth flow implementation:
+
+```typescript
+import {
+  generateCodeVerifier,
+  generateCodeChallenge,
+  buildAuthorizeUrl,
+  exchangeCode
+} from 'ave-sdk';
+
+// 1. Configure your app
+const config = {
+  clientId: 'your_client_id',
+  redirectUri: 'https://yourapp.com/callback'
+};
+
+// 2. Generate PKCE parameters
+const codeVerifier = generateCodeVerifier();
+const codeChallenge = await generateCodeChallenge(codeVerifier);
+
+// 3. Build authorization URL
+const authUrl = buildAuthorizeUrl(config, {
+  scope: ['openid', 'profile', 'email', 'offline_access'],
+  codeChallenge,
+  codeChallengeMethod: 'S256',
+  state: 'random_state_value'
+});
+
+// 4. Redirect user to authUrl
+window.location.href = authUrl;
+
+// 5. Handle callback (after user authorizes)
+const urlParams = new URLSearchParams(window.location.search);
+const code = urlParams.get('code');
+
+// 6. Exchange code for tokens
+const tokens = await exchangeCode(config, {
+  code,
+  codeVerifier
+});
+
+console.log(tokens.access_token);
+console.log(tokens.id_token);
+console.log(tokens.refresh_token);
+```
+
+## Configuration Options
+
+### AveConfig
+
+```typescript
+interface AveConfig {
+  clientId: string;      // Your OAuth app client ID
+  redirectUri: string;   // Authorized redirect URI
+  issuer?: string;       // Optional: defaults to https://aveid.net
+}
+```
+
+## Token Response
+
+Successful token exchanges return:
+
+```typescript
+interface TokenResponse {
+  access_token: string;       // Opaque access token
+  access_token_jwt: string;   // JWT format access token
+  id_token?: string;          // OIDC ID token (if 'openid' scope)
+  refresh_token?: string;     // Refresh token (if 'offline_access' scope)
+  expires_in: number;         // Token lifetime in seconds
+  scope: string;              // Granted scopes
+  user?: {                    // User information
+    id: string;
+    handle: string;
+    displayName: string;
+    email?: string;
+    avatarUrl?: string;
+  };
+  encrypted_app_key?: string; // E2EE encrypted app key
+  user_id?: string;           // User ID (if 'user_id' scope)
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authorization Flow" icon="arrow-right-arrow-left" href="/oauth/authorization-flow">
+    Learn the complete authorization code flow with PKCE
+  </Card>
+  
+  <Card title="Token Exchange" icon="key" href="/oauth/token-exchange">
+    Exchange codes and refresh tokens
+  </Card>
+  
+  <Card title="OAuth Scopes" icon="list-check" href="/oauth/scopes">
+    Understand available OAuth scopes
+  </Card>
+  
+  <Card title="Delegated Tokens" icon="share-nodes" href="/oauth/delegated-tokens">
+    Implement app-to-app delegation
+  </Card>
+</CardGroup>

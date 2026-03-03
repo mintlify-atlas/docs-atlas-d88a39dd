@@ -1,0 +1,146 @@
+---
+title: "Embed Library Overview"
+description: "Lightweight iframe embed for Ave sign-in with postMessage callbacks"
+---
+
+# @ave-id/embed
+
+The Ave embed library provides a lightweight, iframe-based solution for integrating Ave authentication into your web application. It uses postMessage callbacks for secure communication between your app and the Ave authentication flow.
+
+## Installation
+
+<CodeGroup>
+
+```bash npm
+npm install @ave-id/embed
+```
+
+```bash yarn
+yarn add @ave-id/embed
+```
+
+```bash pnpm
+pnpm add @ave-id/embed
+```
+
+</CodeGroup>
+
+## Embedding Options
+
+The library supports multiple embedding strategies to fit different use cases:
+
+### Inline iframe
+
+Embed the authentication flow directly into your page using `mountAveEmbed()`. Best for:
+- Dedicated sign-in pages
+- Seamless user experience
+- Full control over positioning
+
+[Learn more about inline iframes](/embed/inline-iframe)
+
+### Modal sheet
+
+Display authentication in a mobile-friendly bottom sheet using `openAveSheet()`. Best for:
+- Mobile-first applications
+- Native app-like experience
+- Overlay authentication flows
+
+[Learn more about modal sheets](/embed/modal-sheet)
+
+### Popup window
+
+Open authentication in a separate popup window using `openAvePopup()`. Best for:
+- Desktop applications
+- Multi-window workflows
+- Traditional OAuth flows
+
+[Learn more about popup windows](/embed/popup-window)
+
+## Common Configuration
+
+All embedding methods share common configuration options:
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `clientId` | string | Yes | - | Your Ave client ID |
+| `redirectUri` | string | Yes | - | OAuth redirect URI |
+| `scope` | string | No | `"openid profile email"` | OAuth scopes |
+| `issuer` | string | No | `"https://aveid.net"` | Ave issuer URL |
+| `onSuccess` | function | No | - | Success callback with redirect URL |
+| `onError` | function | No | - | Error callback with error details |
+| `onClose` | function | No | - | Close callback (sheet/popup only) |
+
+## Callbacks
+
+### onSuccess
+
+Called when authentication completes successfully:
+
+```js
+onSuccess: ({ redirectUrl }) => {
+  window.location.href = redirectUrl;
+}
+```
+
+### onError
+
+Called when an error occurs during authentication:
+
+```js
+onError: (payload) => {
+  console.error("Authentication error:", payload);
+}
+```
+
+### onClose
+
+Called when the user closes the sheet or popup (not available for inline iframes):
+
+```js
+onClose: () => {
+  console.log("User closed authentication");
+}
+```
+
+<Note>
+All callbacks use postMessage for secure cross-origin communication between your app and the Ave authentication iframe.
+</Note>
+
+## Advanced Flows
+
+For advanced use cases, the library also supports:
+
+- **Connector flows** - Separate resource authorization flows using `openAveConnectorSheet()`
+- **Runtime execution** - Protected browser execution with `openAveConnectorRuntime()`
+
+[Learn more about connector flows](/embed/connector-flow)
+
+## Browser Compatibility
+
+<Warning>
+The embed library requires browsers that support:
+- iframes with `allow` attributes
+- postMessage API
+- ES6+ JavaScript features
+
+Most modern browsers are supported, but IE11 and older browsers are not compatible.
+</Warning>
+
+## Next Steps
+
+Choose an embedding method that fits your use case:
+
+<CardGroup cols={2}>
+  <Card title="Inline iframe" icon="window" href="/embed/inline-iframe">
+    Embed authentication directly in your page
+  </Card>
+  <Card title="Modal sheet" icon="mobile" href="/embed/modal-sheet">
+    Mobile-friendly bottom sheet overlay
+  </Card>
+  <Card title="Popup window" icon="window-restore" href="/embed/popup-window">
+    Traditional popup window flow
+  </Card>
+  <Card title="Connector flow" icon="plug" href="/embed/connector-flow">
+    Advanced resource authorization
+  </Card>
+</CardGroup>

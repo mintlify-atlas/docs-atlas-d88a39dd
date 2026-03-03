@@ -1,0 +1,379 @@
+---
+title: 'Token Exchange'
+description: 'Exchange authorization codes and refresh access tokens'
+---
+
+## Token Endpoint
+
+The token endpoint handles three types of token operations:
+
+1. **Authorization Code Exchange** - Exchange an authorization code for tokens
+2. **Refresh Token Exchange** - Get new access tokens using a refresh token
+3. **Token Exchange (Delegation)** - Exchange tokens for app-to-app delegation
+
+### Endpoint
+
+```
+POST https://api.aveid.net/api/oauth/token
+Content-Type: application/json
+```
+
+## Authorization Code Exchange
+
+Exchange an authorization code for access tokens after the user authorizes your app.
+
+### Request
+
+```json
+{
+  "grantType": "authorization_code",
+  "code": "abc123...",
+  "redirectUri": "https://yourapp.com/callback",
+  "clientId": "your_client_id",
+  "clientSecret": "your_secret",  // Optional: for confidential clients
+  "codeVerifier": "dBjftJeZ..."   // Required if PKCE was used
+}
+```
+
+### Response
+
+```json
+{
+  "access_token": "opaque_token_xyz",
+  "access_token_jwt": "eyJhbGciOiJSUzI1NiIs...",
+  "id_token": "eyJhbGciOiJSUzI1NiIs...",
+  "refresh_token": "rt_a1b2c3d4e5f6...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "openid profile email offline_access",
+  "user": {
+    "id": "identity-uuid",
+    "handle": "user@example.com",
+    "displayName": "John Doe",
+    "email": "user@example.com",
+    "avatarUrl": "https://..."
+  },
+  "user_id": "user-uuid",           // If 'user_id' scope granted
+  "encrypted_app_key": "base64..."   // If E2EE enabled
+}
+```
+
+### SDK Usage
+
+```typescript
+import { exchangeCode } from 'ave-sdk';
+
+const tokens = await exchangeCode(
+  {
+    clientId: 'your_client_id',
+    redirectUri: 'https://yourapp.com/callback'
+  },
+  {
+    code: authorizationCode,
+    codeVerifier: storedVerifier  // From PKCE flow
+  }
+);
+
+// Access tokens
+console.log(tokens.access_token);     // Opaque token
+console.log(tokens.access_token_jwt); // JWT format
+console.log(tokens.id_token);         // OIDC ID token
+console.log(tokens.refresh_token);    // For token refresh
+
+// User information
+console.log(tokens.user.displayName);
+console.log(tokens.user.email);
+```
+
+## Refresh Token Exchange
+
+Use a refresh token to obtain new access tokens without requiring user interaction.
+
+<Note>
+  Refresh tokens are automatically rotated on each use. The old refresh token is revoked and a new one is issued. Store the new refresh token for future use.
+</Note>
+
+### Request
+
+```json
+{
+  "grantType": "refresh_token",
+  "refreshToken": "rt_a1b2c3d4e5f6...",
+  "clientId": "your_client_id",
+  "clientSecret": "your_secret"  // Optional
+}
+```
+
+### Response
+
+```json
+{
+  "access_token": "new_opaque_token",
+  "access_token_jwt": "eyJhbGciOiJSUzI1NiIs...",
+  "id_token": "eyJhbGciOiJSUzI1NiIs...",
+  "refresh_token": "rt_new_token_xyz",  // New refresh token
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "user_id": "user-uuid"  // If 'user_id' scope granted
+}
+```
+
+### SDK Usage
+
+```typescript
+import { refreshToken } from 'ave-sdk';
+
+const tokens = await refreshToken(
+  {
+    clientId: 'your_client_id'
+  },
+  {
+    refreshToken: storedRefreshToken
+  }
+);
+
+// Update stored tokens
+storeTokens({
+  accessToken: tokens.access_token,
+  refreshToken: tokens.refresh_token,  // Important: store the NEW refresh token
+  expiresAt: Date.now() + (tokens.expires_in * 1000)
+});
+```
+
+## Token Refresh Best Practices
+
+<Steps>
+  <Step title="Store refresh tokens securely">
+    Refresh tokens are long-lived (30 days by default) and should be stored securely:
+    
+    - **Web apps**: Secure, HttpOnly cookies
+    - **Mobile apps**: Secure storage (Keychain/Keystore)
+    - **Never** store in localStorage or expose to client-side JavaScript
+  </Step>
+  
+  <Step title="Implement automatic token refresh">
+    Proactively refresh tokens before they expire:
+    
+    ```typescript
+    async function ensureValidToken() {
+      const tokens = getStoredTokens();
+      const expiresAt = tokens.expiresAt;
+      const now = Date.now();
+      
+      // Refresh if token expires in less than 5 minutes
+      if (expiresAt - now < 5 * 60 * 1000) {
+        const newTokens = await refreshToken(
+          { clientId: 'your_client_id' },
+          { refreshToken: tokens.refreshToken }
+        );
+        
+        storeTokens({
+          accessToken: newTokens.access_token,
+          refreshToken: newTokens.refresh_token,
+          expiresAt: Date.now() + (newTokens.expires_in * 1000)
+        });
+        
+        return newTokens.access_token;
+      }
+      
+      return tokens.accessToken;
+    }
+    ```
+  </Step>
+  
+  <Step title="Handle refresh token errors">
+    If refresh fails, re-authenticate the user:
+    
+    ```typescript
+    try {
+      const newTokens = await refreshToken(config, { refreshToken });
+      storeTokens(newTokens);
+    } catch (error) {
+      // Refresh token is invalid/expired
+      // Clear stored tokens and redirect to login
+      clearTokens();
+      redirectToLogin();
+    }
+    ```
+  </Step>
+  
+  <Step title="Detect token reuse">
+    Ave automatically revokes all tokens if refresh token reuse is detected:
+    
+    ```typescript
+    try {
+      await refreshToken(config, { refreshToken });
+    } catch (error) {
+      if (error.message.includes('Refresh token revoked')) {
+        // Possible security incident - reuse detected
+        // Force user to re-authenticate
+        alert('Security alert: Please log in again');
+        clearAllSessions();
+        redirectToLogin();
+      }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Token Validation
+
+### Access Token (Opaque)
+
+Opaque access tokens must be validated by calling the userinfo endpoint:
+
+```typescript
+import { fetchUserInfo } from 'ave-sdk';
+
+const userInfo = await fetchUserInfo(
+  { clientId: 'your_client_id' },
+  accessToken
+);
+
+console.log(userInfo.sub);        // Identity ID
+console.log(userInfo.name);       // Display name
+console.log(userInfo.email);      // Email (if 'email' scope)
+console.log(userInfo.user_id);    // User ID (if 'user_id' scope)
+```
+
+### Access Token (JWT)
+
+JWT access tokens can be validated locally:
+
+```typescript
+import { jwtVerify, createRemoteJWKSet } from 'jose';
+
+const JWKS = createRemoteJWKSet(
+  new URL('https://api.aveid.net/.well-known/jwks.json')
+);
+
+const { payload } = await jwtVerify(accessTokenJwt, JWKS, {
+  issuer: 'https://aveid.net',
+  audience: 'https://api.aveid.net/resources'
+});
+
+console.log(payload.sub);   // Identity ID
+console.log(payload.sid);   // User session ID
+console.log(payload.cid);   // Client ID
+console.log(payload.scope); // Granted scopes
+console.log(payload.uid);   // User ID (if 'user_id' scope)
+```
+
+**JWT Claims:**
+
+| Claim | Description |
+|-------|-------------|
+| `iss` | Issuer (https://aveid.net) |
+| `sub` | Subject (identity ID) |
+| `aud` | Audience (https://api.aveid.net/resources) |
+| `exp` | Expiration time (Unix timestamp) |
+| `iat` | Issued at (Unix timestamp) |
+| `scope` | Space-separated granted scopes |
+| `cid` | Client ID |
+| `sid` | User session/user ID |
+| `uid` | User ID (only if 'user_id' scope granted) |
+
+### ID Token (OIDC)
+
+Validate ID tokens following OIDC specification:
+
+```typescript
+import { jwtVerify, createRemoteJWKSet } from 'jose';
+
+const JWKS = createRemoteJWKSet(
+  new URL('https://api.aveid.net/.well-known/jwks.json')
+);
+
+const { payload } = await jwtVerify(idToken, JWKS, {
+  issuer: 'https://aveid.net',
+  audience: 'your_client_id'  // Must match your client ID
+});
+
+// Validate nonce (if used)
+if (payload.nonce !== expectedNonce) {
+  throw new Error('Nonce mismatch');
+}
+
+console.log(payload.sub);                  // Identity ID
+console.log(payload.name);                 // Display name
+console.log(payload.preferred_username);   // Handle
+console.log(payload.email);                // Email
+console.log(payload.picture);              // Avatar URL
+```
+
+## Error Handling
+
+### Common Errors
+
+| Error | Description | Resolution |
+|-------|-------------|------------|
+| `invalid_grant` | Code/token invalid or expired | Authorization codes expire after 10 minutes. Request new authorization. |
+| `invalid_client` | Client authentication failed | Verify clientId and clientSecret are correct. |
+| `invalid_request` | Missing required parameter | Check code_verifier is provided for PKCE flow. |
+| `invalid_scope` | Requested scope exceeds granted | Only request scopes that were authorized. |
+
+### Refresh Token Errors
+
+| Error | Description | Resolution |
+|-------|-------------|------------|
+| `Refresh token not found` | Token doesn't exist | User must re-authenticate. |
+| `Refresh token revoked` | Token was revoked or reused | All tokens revoked. User must re-authenticate. |
+| `Refresh token expired` | Token exceeded TTL (30 days default) | User must re-authenticate. |
+
+## Token Lifetimes
+
+| Token Type | Default Lifetime | Configurable |
+|------------|------------------|-------------|
+| Authorization Code | 10 minutes | No |
+| Access Token (Opaque) | 1 hour (3600s) | Yes (per app) |
+| Access Token (JWT) | 1 hour (3600s) | Yes (per app) |
+| ID Token | Same as access token | Yes (per app) |
+| Refresh Token | 30 days | Yes (per app) |
+
+## UserInfo Endpoint
+
+Retrieve user information using an access token.
+
+### Endpoint
+
+```
+GET https://api.aveid.net/api/oauth/userinfo
+Authorization: Bearer {access_token}
+```
+
+### Response
+
+```json
+{
+  "sub": "identity-uuid",
+  "iss": "https://aveid.net",
+  "name": "John Doe",               // If 'profile' scope
+  "preferred_username": "john@example.com",  // If 'profile' scope
+  "picture": "https://...",         // If 'profile' scope
+  "email": "john@example.com",      // If 'email' scope
+  "user_id": "user-uuid"            // If 'user_id' scope
+}
+```
+
+### SDK Usage
+
+```typescript
+import { fetchUserInfo } from 'ave-sdk';
+
+const userInfo = await fetchUserInfo(
+  { clientId: 'your_client_id' },
+  tokens.access_token
+);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="OAuth Scopes" icon="list" href="/oauth/scopes">
+    Learn about available scopes and permissions
+  </Card>
+  
+  <Card title="Delegated Tokens" icon="share-nodes" href="/oauth/delegated-tokens">
+    Implement app-to-app delegation with token exchange
+  </Card>
+</CardGroup>

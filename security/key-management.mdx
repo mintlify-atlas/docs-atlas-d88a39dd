@@ -1,0 +1,730 @@
+---
+title: Key Management
+description: Master key lifecycle, recovery, and security management
+---
+
+Ave's security relies on proper master key management. This guide explains the complete lifecycle of master keys, from generation to recovery.
+
+## Master Key Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Generation: Registration
+    Generation --> LocalStorage: Store in browser
+    LocalStorage --> BackupCreation: Encrypt with trust codes
+    BackupCreation --> ServerUpload: Upload encrypted backup
+    ServerUpload --> InUse: Normal operation
+    
+    InUse --> Recovery: Device lost
+    Recovery --> TrustCode: Enter trust code
+    TrustCode --> LocalStorage: Decrypt and restore
+    
+    InUse --> Transfer: New device login
+    Transfer --> ECDH: Ephemeral key exchange
+    ECDH --> LocalStorage: Secure transfer
+    
+    LocalStorage --> [*]: Logout / Clear
+```
+
+## Master Key Generation
+
+During account registration, the client generates a master key:
+
+<Steps>
+  <Step title="Generate 256-bit AES Key">
+    ```typescript
+    const masterKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true, // extractable for backup
+      ["encrypt", "decrypt"]
+    );
+    ```
+    
+    The key is generated using the browser's CSPRNG (Cryptographically Secure Pseudo-Random Number Generator).
+  </Step>
+
+  <Step title="Store Locally">
+    ```typescript
+    const keyData = await crypto.subtle.exportKey("raw", masterKey);
+    const encoded = btoa(String.fromCharCode(...new Uint8Array(keyData)));
+    localStorage.setItem("ave_master_key", encoded);
+    ```
+    
+    The key is stored in browser localStorage for reuse across sessions.
+  </Step>
+
+  <Step title="Create Trust Codes">
+    Server generates 2 trust codes in format: `XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`
+    
+    ```typescript
+    // Server-side (ave-server/src/lib/crypto.ts)
+    export function generateTrustCode(): string {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      const segments = 5;
+      const segmentLength = 5;
+      
+      const parts: string[] = [];
+      for (let i = 0; i < segments; i++) {
+        let segment = "";
+        for (let j = 0; j < segmentLength; j++) {
+          const randomIndex = randomBytes(1)[0] % chars.length;
+          segment += chars[randomIndex];
+        }
+        parts.push(segment);
+      }
+      
+      return parts.join("-"); // "ABCDE-12345-FGHIJ-67890-KLMNO"
+    }
+    ```
+    
+    See [ave-server/src/lib/crypto.ts:17](https://github.com/your-org/ave/blob/main/ave-server/src/lib/crypto.ts#L17).
+  </Step>
+
+  <Step title="Encrypt Master Key">
+    Client encrypts master key with each trust code:
+    
+    ```typescript
+    const backups = [];
+    for (const code of trustCodes) {
+      const derivedKey = await deriveKeyFromTrustCode(code);
+      const encrypted = await encrypt(masterKeyData, derivedKey);
+      backups.push(encrypted);
+    }
+    
+    const backup = JSON.stringify({ version: 1, backups });
+    ```
+  </Step>
+
+  <Step title="Upload Encrypted Backup">
+    ```typescript
+    POST /api/register/finalize-backup
+    {
+      "encryptedMasterKeyBackup": "{...}"
+    }
+    ```
+    
+    Server stores the backup in the `users` table without ability to decrypt it.
+  </Step>
+</Steps>
+
+See [ave-web/src/lib/crypto.ts:144](https://github.com/your-org/ave/blob/main/ave-web/src/lib/crypto.ts#L144) for backup creation.
+
+<Warning>
+**Critical Security Note**: Trust codes are shown to the user ONCE during registration. They're never retrievable later. Users must save them immediately.
+</Warning>
+
+## Trust Code Storage
+
+Trust codes are hashed before storage:
+
+```typescript
+// Server-side hashing
+export function hashTrustCode(code: string): string {
+  // Normalize: uppercase, strip separators
+  const normalized = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
+// Store hash in database
+await db.insert(trustCodes).values({
+  userId: user.id,
+  codeHash: hashTrustCode(code) // Only hash is stored
+});
+```
+
+See [ave-server/src/lib/crypto.ts:36](https://github.com/your-org/ave/blob/main/ave-server/src/lib/crypto.ts#L36).
+
+Database schema:
+
+```typescript
+export const trustCodes = sqliteTable("trust_codes", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  codeHash: text("code_hash").notNull(), // SHA-256 hash
+  createdAt: integer("created_at", { mode: "timestamp_ms" }),
+  usedAt: integer("used_at", { mode: "timestamp_ms" }) // Deprecated - codes are reusable
+});
+```
+
+See [ave-server/src/db/schema.ts:145](https://github.com/your-org/ave/blob/main/ave-server/src/db/schema.ts#L145).
+
+<Note>
+Trust codes are **reusable** - they can be used multiple times for recovery. The `usedAt` field is no longer set, as codes remain valid until regenerated.
+</Note>
+
+## Trust Code Recovery
+
+When a user loses access to their master key (e.g., new device without passkey):
+
+<Steps>
+  <Step title="User Enters Trust Code">
+    ```typescript
+    POST /api/login/trust-code
+    {
+      "handle": "alice",
+      "code": "ABCDE-12345-FGHIJ-67890-KLMNO",
+      "device": {
+        "name": "Chrome on Windows",
+        "type": "computer",
+        "fingerprint": "device-hash"
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Server Validates Trust Code">
+    ```typescript
+    // Find user's trust codes
+    const userTrustCodes = await db.query.trustCodes.findMany({
+      where: eq(trustCodes.userId, identity.userId)
+    });
+    
+    // Verify provided code against hashes
+    let matchedCode = null;
+    for (const tc of userTrustCodes) {
+      if (verifyTrustCode(providedCode, tc.codeHash)) {
+        matchedCode = tc;
+        break;
+      }
+    }
+    
+    if (!matchedCode) {
+      return { error: "Invalid trust code" };
+    }
+    ```
+    
+    See [ave-server/src/routes/login.ts:560](https://github.com/your-org/ave/blob/main/ave-server/src/routes/login.ts#L560).
+  </Step>
+
+  <Step title="Return Encrypted Backup">
+    ```typescript
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, identity.userId)
+    });
+    
+    return {
+      sessionToken: generatedToken,
+      encryptedMasterKeyBackup: user.encryptedMasterKeyBackup
+    };
+    ```
+  </Step>
+
+  <Step title="Client Decrypts Master Key">
+    ```typescript
+    // Derive key from trust code
+    const derivedKey = await deriveKeyFromTrustCode(providedCode);
+    
+    // Parse backup JSON
+    const backup = JSON.parse(encryptedMasterKeyBackup);
+    
+    // Try each backup until one decrypts
+    for (const encryptedBackup of backup.backups) {
+      try {
+        const masterKeyData = await decrypt(encryptedBackup, derivedKey);
+        const masterKey = await importMasterKey(masterKeyData);
+        
+        // Store recovered key
+        await storeMasterKey(masterKey);
+        return masterKey;
+      } catch {
+        continue; // Wrong code, try next backup
+      }
+    }
+    ```
+    
+    See [ave-web/src/lib/crypto.ts:171](https://github.com/your-org/ave/blob/main/ave-web/src/lib/crypto.ts#L171).
+  </Step>
+</Steps>
+
+## Regenerating Trust Codes
+
+Users can regenerate trust codes from the Security page:
+
+```typescript
+POST /api/security/trust-codes/regenerate
+Authorization: Bearer session-token
+
+Response:
+{
+  "codes": [
+    "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE",
+    "FFFFF-GGGGG-HHHHH-IIIII-JJJJJ"
+  ]
+}
+```
+
+Server implementation:
+
+```typescript
+// Delete old codes
+await db.delete(trustCodes).where(eq(trustCodes.userId, user.id));
+
+// Generate new codes
+const codes: string[] = [];
+for (let i = 0; i < 2; i++) {
+  const code = generateTrustCode();
+  codes.push(code);
+  await db.insert(trustCodes).values({
+    userId: user.id,
+    codeHash: hashTrustCode(code)
+  });
+}
+
+// Client must re-encrypt master key backup with new codes
+const newBackup = await createMasterKeyBackup(masterKey, codes);
+await updateUser({ encryptedMasterKeyBackup: newBackup });
+```
+
+See [ave-server/src/routes/security.ts:399](https://github.com/your-org/ave/blob/main/ave-server/src/routes/security.ts#L399).
+
+<Warning>
+Regenerating trust codes **invalidates all previous codes**. Users must save the new codes immediately. Old codes will no longer work for recovery.
+</Warning>
+
+## Multi-Device Login
+
+When logging in on a new device, users can request approval from a trusted device:
+
+<Steps>
+  <Step title="Request Login Approval">
+    Device 2 generates an ephemeral ECDH keypair:
+    
+    ```typescript
+    const { publicKey, privateKey } = await generateEphemeralKeyPair();
+    
+    POST /api/login/request-approval
+    {
+      "handle": "alice",
+      "requesterPublicKey": publicKey, // Base64 SPKI format
+      "device": { ... }
+    }
+    
+    Response:
+    {
+      "requestId": "uuid",
+      "expiresAt": "2026-03-03T12:30:00Z"
+    }
+    ```
+  </Step>
+
+  <Step title="Device 1 Receives Notification">
+    Via WebSocket or push notification:
+    
+    ```json
+    {
+      "type": "login_request",
+      "id": "uuid",
+      "deviceName": "Chrome on Windows",
+      "deviceType": "computer",
+      "browser": "Chrome 120",
+      "os": "Windows 11",
+      "ipAddress": "192.168.1.100"
+    }
+    ```
+  </Step>
+
+  <Step title="User Approves Request">
+    ```typescript
+    POST /api/login-requests/:id/approve
+    Authorization: Bearer device-1-session-token
+    {
+      "approverPublicKey": "..." // Device 1's ephemeral public key
+    }
+    ```
+    
+    Device 1 encrypts master key:
+    
+    ```typescript
+    // Load master key from localStorage
+    const masterKey = await loadMasterKey();
+    
+    // Generate ephemeral keypair
+    const { publicKey: approverPublicKey, privateKey } = 
+      await generateEphemeralKeyPair();
+    
+    // Encrypt master key for Device 2
+    const encryptedMasterKey = await encryptMasterKeyForDevice(
+      masterKey,
+      request.requesterPublicKey, // Device 2's public key
+      privateKey // Device 1's private key
+    );
+    
+    // Send to server
+    await approveLoginRequest(requestId, {
+      approverPublicKey,
+      encryptedMasterKey
+    });
+    ```
+  </Step>
+
+  <Step title="Device 2 Receives Encrypted Key">
+    Via WebSocket or polling:
+    
+    ```typescript
+    GET /api/login/request-status/:requestId
+    
+    Response:
+    {
+      "status": "approved",
+      "sessionToken": "...",
+      "encryptedMasterKey": "...",
+      "approverPublicKey": "..."
+    }
+    ```
+    
+    Device 2 decrypts:
+    
+    ```typescript
+    const masterKey = await decryptMasterKeyFromDevice(
+      encryptedMasterKey,
+      approverPublicKey, // Device 1's public key
+      privateKey // Device 2's private key (stored locally)
+    );
+    
+    await storeMasterKey(masterKey);
+    ```
+  </Step>
+</Steps>
+
+See [ave-server/src/routes/login.ts:318](https://github.com/your-org/ave/blob/main/ave-server/src/routes/login.ts#L318) for approval flow.
+
+<Note>
+Ephemeral keys are **never stored**. They're generated per-request and discarded after use, providing forward secrecy.
+</Note>
+
+## PRF-Based Key Recovery
+
+Passkeys supporting the PRF extension can store an encrypted master key:
+
+### During Passkey Registration
+
+```typescript
+// Request PRF output during passkey creation
+const credential = await navigator.credentials.create({
+  publicKey: {
+    ...options,
+    extensions: {
+      prf: {
+        eval: {
+          first: salt // 32-byte salt
+        }
+      }
+    }
+  }
+});
+
+// Get PRF output
+const prfOutput = credential.getClientExtensionResults().prf?.results.first;
+
+if (prfOutput) {
+  // Encrypt master key with PRF output
+  const prfKey = await deriveKeyFromPrf(prfOutput);
+  const encrypted = await encrypt(masterKeyData, prfKey);
+  
+  // Store with passkey
+  POST /api/security/passkeys/complete
+  {
+    "credential": credential,
+    "prfEncryptedMasterKey": encrypted
+  }
+}
+```
+
+### During Login
+
+```typescript
+// PRF output is available during authentication
+const credential = await navigator.credentials.get({
+  publicKey: {
+    ...options,
+    extensions: {
+      prf: {
+        eval: {
+          first: salt // Same salt as registration
+        }
+      }
+    }
+  }
+});
+
+const prfOutput = credential.getClientExtensionResults().prf?.results.first;
+
+// Server returns encrypted master key
+const { prfEncryptedMasterKey } = await loginWithPasskey(credential);
+
+// Decrypt master key
+if (prfOutput && prfEncryptedMasterKey) {
+  const masterKey = await decryptMasterKeyWithPrf(
+    prfEncryptedMasterKey,
+    prfOutput
+  );
+  
+  await storeMasterKey(masterKey);
+}
+```
+
+See [ave-web/src/lib/crypto.ts:342](https://github.com/your-org/ave/blob/main/ave-web/src/lib/crypto.ts#L342).
+
+<Note>
+PRF eliminates the need for trust codes on devices with PRF-compatible authenticators. The passkey itself unlocks the master key.
+</Note>
+
+## Session Management
+
+Sessions are created when users log in:
+
+```typescript
+const sessionToken = generateSessionToken(); // 64 hex chars
+const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+await db.insert(sessions).values({
+  userId: user.id,
+  deviceId: device.id,
+  tokenHash: hashSessionToken(sessionToken), // SHA-256 hash
+  expiresAt,
+  ipAddress: request.ip,
+  userAgent: request.headers.get("user-agent")
+});
+
+// Set HTTP-only cookie
+setSessionCookie(context, sessionToken, expiresAt);
+```
+
+See [ave-server/src/routes/login.ts:258](https://github.com/your-org/ave/blob/main/ave-server/src/routes/login.ts#L258).
+
+Database schema:
+
+```typescript
+export const sessions = sqliteTable("sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  deviceId: text("device_id"),
+  tokenHash: text("token_hash").notNull().unique(), // SHA-256
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+});
+```
+
+<Warning>
+Session tokens are stored as **SHA-256 hashes**. Even if the database is compromised, attackers cannot derive the original tokens.
+</Warning>
+
+## Device Management
+
+Devices are tracked using fingerprints:
+
+```typescript
+// Client generates device fingerprint
+const fingerprint = await generateDeviceFingerprint(); // Hash of browser/OS/etc.
+
+// Check if device exists
+const existingDevice = await db.query.devices.findFirst({
+  where: and(
+    eq(devices.userId, userId),
+    eq(devices.fingerprint, fingerprint)
+  )
+});
+
+if (existingDevice) {
+  // Update last seen
+  await db.update(devices)
+    .set({ lastSeenAt: new Date() })
+    .where(eq(devices.id, existingDevice.id));
+} else {
+  // Create new device
+  await db.insert(devices).values({
+    userId,
+    name: "Chrome on macOS",
+    type: "computer",
+    fingerprint
+  });
+}
+```
+
+See [ave-server/src/routes/login.ts:29](https://github.com/your-org/ave/blob/main/ave-server/src/routes/login.ts#L29).
+
+Users can revoke devices:
+
+```typescript
+DELETE /api/devices/:deviceId
+Authorization: Bearer session-token
+
+// Revokes all sessions for that device
+await db.delete(sessions).where(eq(sessions.deviceId, deviceId));
+await db.update(devices)
+  .set({ isActive: false })
+  .where(eq(devices.id, deviceId));
+```
+
+## Activity Monitoring
+
+All security-related actions are logged:
+
+```typescript
+await db.insert(activityLogs).values({
+  userId: user.id,
+  action: "trust_code_used",
+  details: { deviceName: device.name, isNewDevice: true },
+  deviceId: device.id,
+  ipAddress: request.ip,
+  userAgent: request.headers.get("user-agent"),
+  severity: "warning" // info | warning | danger
+});
+```
+
+Activity log entries include:
+
+- `account_created` - New account registration
+- `login` - Successful login (with method: passkey, trust_code, device_approval)
+- `logout` - User logged out
+- `passkey_added` - New passkey registered
+- `passkey_removed` - Passkey deleted
+- `trust_codes_regenerated` - New trust codes generated
+- `trust_code_failed` - Invalid trust code attempt
+- `device_removed` - Device revoked
+
+See [ave-server/src/db/schema.ts:160](https://github.com/your-org/ave/blob/main/ave-server/src/db/schema.ts#L160).
+
+## Security Best Practices
+
+### For Users
+
+<AccordionGroup>
+  <Accordion title="Save Trust Codes Securely">
+    - Print them and store in a safe
+    - Save in a password manager (separate from Ave account)
+    - Write them down and store in a secure location
+    - **Never** share them with anyone
+    - **Never** store them unencrypted in cloud storage
+  </Accordion>
+
+  <Accordion title="Use Multiple Passkeys">
+    - Register passkeys on at least 2 devices
+    - Use a mix of platform authenticators (Touch ID, Windows Hello)
+    - Consider a hardware security key (YubiKey) as backup
+    - Name passkeys descriptively ("MacBook Pro Touch ID", "YubiKey 5")
+  </Accordion>
+
+  <Accordion title="Monitor Activity">
+    - Regularly review activity logs
+    - Check for unfamiliar devices or locations
+    - Revoke devices you no longer use
+    - Investigate any suspicious "warning" or "danger" events
+  </Accordion>
+
+  <Accordion title="Practice Recovery">
+    - Test trust code recovery in a private browsing window
+    - Verify you have access to at least one trust code
+    - Consider regenerating codes if you suspect compromise
+  </Accordion>
+</AccordionGroup>
+
+### For Developers
+
+<AccordionGroup>
+  <Accordion title="Never Log Master Keys">
+    ```typescript
+    // ❌ BAD - Logs master key
+    console.log("Master key:", masterKey);
+    
+    // ✅ GOOD - Only log metadata
+    console.log("Master key loaded:", {
+      algorithm: masterKey.algorithm.name,
+      extractable: masterKey.extractable
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="Secure Key Storage">
+    ```typescript
+    // ❌ BAD - Plaintext in sessionStorage
+    sessionStorage.setItem("key", JSON.stringify(masterKey));
+    
+    // ✅ GOOD - Encrypted in localStorage
+    const encoded = btoa(String.fromCharCode(...new Uint8Array(keyData)));
+    localStorage.setItem("ave_master_key", encoded);
+    ```
+  </Accordion>
+
+  <Accordion title="Validate Trust Codes">
+    ```typescript
+    // ❌ BAD - Direct comparison
+    if (providedCode === storedCode) { ... }
+    
+    // ✅ GOOD - Hash comparison
+    if (hashTrustCode(providedCode) === storedCodeHash) { ... }
+    ```
+  </Accordion>
+
+  <Accordion title="Handle Key Loss Gracefully">
+    ```typescript
+    const masterKey = await loadMasterKey();
+    
+    if (!masterKey) {
+      // Prompt for trust code recovery
+      return showRecoveryPrompt();
+    }
+    
+    // Proceed with encryption
+    const encrypted = await encrypt(data, masterKey);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Key Rotation
+
+Currently, Ave does **not support master key rotation**. Once generated, the master key remains the same.
+
+**Future Enhancement**: Key rotation would involve:
+1. Generating a new master key
+2. Re-encrypting all data with the new key
+3. Encrypting new key with trust codes
+4. Updating backup on server
+
+This is a complex operation requiring careful handling of data migration.
+
+## Disaster Recovery
+
+### If Trust Codes Are Lost
+
+❌ **Cannot recover account** - Trust codes are the only way to decrypt the master key backup.
+
+**Prevention**:
+- Save trust codes immediately during registration
+- Store in multiple secure locations
+- Use PRF-enabled passkeys as backup
+
+### If All Devices Are Lost
+
+You can recover using trust codes:
+
+1. Go to Ave login page
+2. Enter your handle
+3. Click "Use a trust code"
+4. Enter one of your saved trust codes
+5. Master key is decrypted and restored
+
+### If Master Key Backup Is Corrupted
+
+**Partial Recovery**:
+- If you still have master key on a device, you can:
+  1. Regenerate trust codes
+  2. Create new backup
+  3. Upload to server
+
+**No Recovery**:
+- If master key is lost from all devices AND backup is corrupted, data is unrecoverable
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Security Overview" href="/security/overview" icon="shield">
+    High-level security architecture
+  </Card>
+  
+  <Card title="Testing Guide" href="/testing" icon="vial">
+    Test recovery and key management flows
+  </Card>
+</CardGroup>

@@ -1,0 +1,668 @@
+---
+title: "Login"
+description: "Authentication endpoints for logging into existing accounts"
+---
+
+## Start Login
+
+<api>POST /api/login/start</api>
+
+Initiates the login process by finding a user by handle and generating authentication options.
+
+### Request Body
+
+<ParamField body="handle" type="string" required>
+  User handle (username). 3-32 characters.
+</ParamField>
+
+### Response
+
+<ResponseField name="userId" type="string">
+  User ID (UUID)
+</ResponseField>
+
+<ResponseField name="identity" type="object">
+  User identity information
+  
+  <ResponseField name="identity.id" type="string">
+    Identity ID
+  </ResponseField>
+  
+  <ResponseField name="identity.displayName" type="string">
+    User's display name
+  </ResponseField>
+  
+  <ResponseField name="identity.handle" type="string">
+    User's handle
+  </ResponseField>
+  
+  <ResponseField name="identity.avatarUrl" type="string | null">
+    Avatar image URL
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="hasDevices" type="boolean">
+  Whether user has trusted devices (enables device approval login option)
+</ResponseField>
+
+<ResponseField name="hasPasskeys" type="boolean">
+  Whether user has passkeys registered (enables passkey login option)
+</ResponseField>
+
+<ResponseField name="authOptions" type="object | null">
+  WebAuthn authentication options (null if user has no passkeys)
+</ResponseField>
+
+<ResponseField name="authSessionId" type="string | null">
+  Authentication session ID for passkey login (UUID, null if no passkeys)
+</ResponseField>
+
+### Error Responses
+
+<ResponseField name="error" type="string">
+  - `"Account not found"` (404) - No user with this handle exists
+</ResponseField>
+
+<RequestExample>
+```bash cURL
+curl -X POST https://api.ave.com/api/login/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "handle": "alice_smith"
+  }'
+```
+
+```json Response
+{
+  "userId": "user_uuid",
+  "identity": {
+    "id": "identity_uuid",
+    "displayName": "Alice Smith",
+    "handle": "alice_smith",
+    "avatarUrl": "https://example.com/avatar.jpg"
+  },
+  "hasDevices": true,
+  "hasPasskeys": true,
+  "authOptions": {
+    "challenge": "...",
+    "timeout": 60000,
+    "rpId": "ave.com",
+    "allowCredentials": [],
+    "userVerification": "preferred"
+  },
+  "authSessionId": "auth_session_uuid"
+}
+```
+</RequestExample>
+
+---
+
+## Login with Passkey
+
+<api>POST /api/login/passkey</api>
+
+Completes login using WebAuthn passkey authentication.
+
+### Request Body
+
+<ParamField body="authSessionId" type="string" required>
+  Authentication session ID from start login response (UUID format)
+</ParamField>
+
+<ParamField body="credential" type="object" required>
+  WebAuthn authentication response from the authenticator
+</ParamField>
+
+<ParamField body="device" type="object" required>
+  Device information
+  
+  <ParamField body="device.name" type="string" required>
+    Device name (max 64 characters)
+  </ParamField>
+  
+  <ParamField body="device.type" type="enum" required>
+    Device type: `"phone"`, `"computer"`, or `"tablet"`
+  </ParamField>
+  
+  <ParamField body="device.browser" type="string">
+    Browser name (optional)
+  </ParamField>
+  
+  <ParamField body="device.os" type="string">
+    Operating system (optional)
+  </ParamField>
+  
+  <ParamField body="device.fingerprint" type="string">
+    Unique device fingerprint (optional, max 64 characters)
+  </ParamField>
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Always `true` on successful login
+</ResponseField>
+
+<ResponseField name="sessionToken" type="string">
+  Session token for authentication (also set as HTTP-only cookie)
+</ResponseField>
+
+<ResponseField name="device" type="object">
+  Device information (existing device if fingerprint matched, otherwise new)
+  
+  <ResponseField name="device.id" type="string">
+    Device ID
+  </ResponseField>
+  
+  <ResponseField name="device.name" type="string">
+    Device name
+  </ResponseField>
+  
+  <ResponseField name="device.type" type="string">
+    Device type
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="identities" type="array">
+  Array of all user identities
+  
+  <ResponseField name="identities[].id" type="string">
+    Identity ID
+  </ResponseField>
+  
+  <ResponseField name="identities[].displayName" type="string">
+    Display name
+  </ResponseField>
+  
+  <ResponseField name="identities[].handle" type="string">
+    Handle
+  </ResponseField>
+  
+  <ResponseField name="identities[].email" type="string | null">
+    Email address
+  </ResponseField>
+  
+  <ResponseField name="identities[].avatarUrl" type="string | null">
+    Avatar URL
+  </ResponseField>
+  
+  <ResponseField name="identities[].bannerUrl" type="string | null">
+    Banner URL
+  </ResponseField>
+  
+  <ResponseField name="identities[].isPrimary" type="boolean">
+    Whether this is the primary identity
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="prfEncryptedMasterKey" type="string | null">
+  PRF-encrypted master key if stored with this passkey (client can decrypt without trust codes)
+</ResponseField>
+
+<ResponseField name="needsMasterKey" type="boolean">
+  Whether master key recovery is needed (true if no PRF-encrypted key available)
+</ResponseField>
+
+### Error Responses
+
+<ResponseField name="error" type="string">
+  - `"Login session expired"` (400) - Challenge expired (10 minute timeout)
+  - `"Passkey not recognized. It may have been registered on a different device or browser."` (400) - Passkey not found
+  - `"Passkey does not belong to this account"` (400) - Passkey belongs to different user
+  - `"Passkey verification failed"` (400) - WebAuthn verification failed
+</ResponseField>
+
+<RequestExample>
+```bash cURL
+curl -X POST https://api.ave.com/api/login/passkey \
+  -H "Content-Type: application/json" \
+  -d '{
+    "authSessionId": "auth_session_uuid",
+    "credential": {
+      "id": "...",
+      "rawId": "...",
+      "response": {
+        "clientDataJSON": "...",
+        "authenticatorData": "...",
+        "signature": "..."
+      },
+      "type": "public-key"
+    },
+    "device": {
+      "name": "MacBook Pro",
+      "type": "computer",
+      "browser": "Chrome",
+      "os": "macOS"
+    }
+  }'
+```
+
+```json Response
+{
+  "success": true,
+  "sessionToken": "...",
+  "device": {
+    "id": "device_uuid",
+    "name": "MacBook Pro",
+    "type": "computer"
+  },
+  "identities": [
+    {
+      "id": "identity_uuid",
+      "displayName": "Alice Smith",
+      "handle": "alice_smith",
+      "email": "alice@example.com",
+      "avatarUrl": null,
+      "bannerUrl": null,
+      "isPrimary": true
+    }
+  ],
+  "prfEncryptedMasterKey": null,
+  "needsMasterKey": true
+}
+```
+</RequestExample>
+
+---
+
+## Request Device Approval
+
+<api>POST /api/login/request-approval</api>
+
+Requests login approval from another trusted device. The requesting device generates an ephemeral key pair for secure key exchange.
+
+### Request Body
+
+<ParamField body="handle" type="string" required>
+  User handle (3-32 characters)
+</ParamField>
+
+<ParamField body="requesterPublicKey" type="string" required>
+  Ephemeral public key from the requesting device for E2EE key exchange
+</ParamField>
+
+<ParamField body="device" type="object" required>
+  Device information
+  
+  <ParamField body="device.name" type="string" required>
+    Device name (max 64 characters)
+  </ParamField>
+  
+  <ParamField body="device.type" type="enum" required>
+    Device type: `"phone"`, `"computer"`, or `"tablet"`
+  </ParamField>
+  
+  <ParamField body="device.browser" type="string">
+    Browser name (optional)
+  </ParamField>
+  
+  <ParamField body="device.os" type="string">
+    Operating system (optional)
+  </ParamField>
+  
+  <ParamField body="device.fingerprint" type="string">
+    Unique device fingerprint (optional, max 64 characters)
+  </ParamField>
+</ParamField>
+
+### Response
+
+<ResponseField name="requestId" type="string">
+  Login request ID (UUID) - use this to poll for approval status
+</ResponseField>
+
+<ResponseField name="expiresAt" type="string">
+  ISO 8601 timestamp when request expires (5 minutes from creation)
+</ResponseField>
+
+### Error Responses
+
+<ResponseField name="error" type="string">
+  - `"Account not found"` (404) - No user with this handle exists
+</ResponseField>
+
+<RequestExample>
+```bash cURL
+curl -X POST https://api.ave.com/api/login/request-approval \
+  -H "Content-Type: application/json" \
+  -d '{
+    "handle": "alice_smith",
+    "requesterPublicKey": "base64_encoded_public_key",
+    "device": {
+      "name": "iPad Pro",
+      "type": "tablet",
+      "browser": "Safari",
+      "os": "iPadOS 17"
+    }
+  }'
+```
+
+```json Response
+{
+  "requestId": "request_uuid",
+  "expiresAt": "2024-03-15T10:30:00.000Z"
+}
+```
+</RequestExample>
+
+---
+
+## Check Request Status
+
+<api>GET /api/login/request-status/:requestId</api>
+
+Polls the status of a login approval request. When approved, returns session token and encrypted master key.
+
+### Path Parameters
+
+<ParamField path="requestId" type="string" required>
+  Login request ID from request-approval response
+</ParamField>
+
+### Response
+
+**Pending:**
+<ResponseField name="status" type="string">
+  `"pending"` - Request is waiting for approval
+</ResponseField>
+
+**Expired:**
+<ResponseField name="status" type="string">
+  `"expired"` - Request has expired (5 minute timeout)
+</ResponseField>
+
+**Denied:**
+<ResponseField name="status" type="string">
+  `"denied"` - Request was denied by user
+</ResponseField>
+
+**Approved:**
+<ResponseField name="status" type="string">
+  `"approved"` - Request was approved
+</ResponseField>
+
+<ResponseField name="sessionToken" type="string">
+  Session token for authentication (also set as HTTP-only cookie)
+</ResponseField>
+
+<ResponseField name="encryptedMasterKey" type="string">
+  Master key encrypted with requester's public key (decrypt with requester's private key)
+</ResponseField>
+
+<ResponseField name="approverPublicKey" type="string">
+  Approver's ephemeral public key for key exchange
+</ResponseField>
+
+<ResponseField name="device" type="object">
+  Created or matched device
+  
+  <ResponseField name="device.id" type="string">
+    Device ID
+  </ResponseField>
+  
+  <ResponseField name="device.name" type="string">
+    Device name
+  </ResponseField>
+  
+  <ResponseField name="device.type" type="string">
+    Device type
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="identities" type="array">
+  Array of all user identities (same structure as passkey login)
+</ResponseField>
+
+### Error Responses
+
+<ResponseField name="error" type="string">
+  - `"Request not found"` (404) - Invalid request ID
+  - `"Account not found"` (404) - User account was deleted
+  - `"Approval key missing"` (400) - Approved but missing public key
+</ResponseField>
+
+<RequestExample>
+```bash cURL
+curl https://api.ave.com/api/login/request-status/request_uuid
+```
+
+```json Pending
+{
+  "status": "pending"
+}
+```
+
+```json Approved
+{
+  "status": "approved",
+  "sessionToken": "...",
+  "encryptedMasterKey": "...",
+  "approverPublicKey": "...",
+  "device": {
+    "id": "device_uuid",
+    "name": "iPad Pro",
+    "type": "tablet"
+  },
+  "identities": [...]
+}
+```
+</RequestExample>
+
+---
+
+## Login with Trust Code
+
+<api>POST /api/login/trust-code</api>
+
+Login using a recovery trust code. Trust codes are reusable and decrypt the master key backup.
+
+### Request Body
+
+<ParamField body="handle" type="string" required>
+  User handle (3-32 characters)
+</ParamField>
+
+<ParamField body="code" type="string" required>
+  Trust code (recovery code provided during registration)
+</ParamField>
+
+<ParamField body="device" type="object" required>
+  Device information (same structure as other login methods)
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Always `true` on successful login
+</ResponseField>
+
+<ResponseField name="sessionToken" type="string">
+  Session token for authentication
+</ResponseField>
+
+<ResponseField name="encryptedMasterKeyBackup" type="string | null">
+  Encrypted master key backup (decrypt with the trust code)
+</ResponseField>
+
+<ResponseField name="device" type="object">
+  Device information (same structure as other login methods)
+</ResponseField>
+
+<ResponseField name="identities" type="array">
+  Array of all user identities
+</ResponseField>
+
+<ResponseField name="remainingTrustCodes" type="number">
+  Number of trust codes registered (all are reusable)
+</ResponseField>
+
+### Error Responses
+
+<ResponseField name="error" type="string">
+  - `"Account not found"` (404) - No user with this handle exists
+  - `"No trust codes found for your account. You may need to regenerate them from the Security page."` (400) - No trust codes configured
+  - `"Invalid trust code. You have {count} trust code(s) registered."` (400) - Trust code doesn't match
+</ResponseField>
+
+<RequestExample>
+```bash cURL
+curl -X POST https://api.ave.com/api/login/trust-code \
+  -H "Content-Type: application/json" \
+  -d '{
+    "handle": "alice_smith",
+    "code": "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX",
+    "device": {
+      "name": "New Laptop",
+      "type": "computer",
+      "browser": "Firefox",
+      "os": "Ubuntu"
+    }
+  }'
+```
+
+```json Response
+{
+  "success": true,
+  "sessionToken": "...",
+  "encryptedMasterKeyBackup": "...",
+  "device": {
+    "id": "device_uuid",
+    "name": "New Laptop",
+    "type": "computer"
+  },
+  "identities": [...],
+  "remainingTrustCodes": 2
+}
+```
+</RequestExample>
+
+---
+
+## Recover Master Key
+
+<api>POST /api/login/recover-key</api>
+
+Recovery endpoint to retrieve the encrypted master key backup without creating a new session. Used when a user is already logged in via passkey but doesn't have the master key locally.
+
+### Request Body
+
+<ParamField body="handle" type="string" required>
+  User handle (3-32 characters)
+</ParamField>
+
+<ParamField body="code" type="string" required>
+  Trust code for verification
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Always `true` on successful recovery
+</ResponseField>
+
+<ResponseField name="encryptedMasterKeyBackup" type="string">
+  Encrypted master key backup (decrypt with the trust code)
+</ResponseField>
+
+### Error Responses
+
+<ResponseField name="error" type="string">
+  - `"Account not found"` (404) - No user with this handle exists
+  - `"No trust codes found for your account."` (400) - No trust codes configured
+  - `"Invalid trust code."` (400) - Trust code doesn't match
+  - `"No encryption backup found."` (400) - No encrypted backup stored
+</ResponseField>
+
+<RequestExample>
+```bash cURL
+curl -X POST https://api.ave.com/api/login/recover-key \
+  -H "Content-Type: application/json" \
+  -d '{
+    "handle": "alice_smith",
+    "code": "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+  }'
+```
+
+```json Response
+{
+  "success": true,
+  "encryptedMasterKeyBackup": "..."
+}
+```
+</RequestExample>
+
+---
+
+## Logout
+
+<api>POST /api/login/logout</api>
+
+Logs out the current session by invalidating the session token.
+
+### Headers
+
+Accepts authentication via either:
+- `Authorization: Bearer {token}` header
+- Session cookie (automatically set by login endpoints)
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Always `true`
+</ResponseField>
+
+<RequestExample>
+```bash cURL
+curl -X POST https://api.ave.com/api/login/logout \
+  -H "Authorization: Bearer {sessionToken}"
+```
+
+```json Response
+{
+  "success": true
+}
+```
+</RequestExample>
+
+## Authentication Flow
+
+Ave supports three authentication methods:
+
+### 1. Passkey Login (Recommended)
+1. Call `/start` with user handle
+2. Use WebAuthn API with `authOptions` to get credential
+3. Call `/passkey` with credential and device info
+4. Receive session token and optional PRF-encrypted master key
+
+### 2. Device Approval Login
+1. Call `/start` to verify user has devices
+2. Call `/request-approval` with ephemeral public key
+3. User approves on trusted device (via `/api/devices/approve-request`)
+4. Poll `/request-status/:requestId` until approved
+5. Receive session token and encrypted master key
+
+### 3. Trust Code Login (Recovery)
+1. Call `/trust-code` with handle, trust code, and device info
+2. Receive session token and encrypted master key backup
+3. Decrypt backup using the trust code
+
+## Session Management
+
+- **Duration**: Sessions expire after 30 days
+- **Storage**: Session tokens are set as HTTP-only cookies and also returned in response
+- **Authentication**: Include token in `Authorization: Bearer {token}` header or rely on cookie
+- **Revocation**: Use `/logout` to invalidate a session
+
+## Device Fingerprinting
+
+Devices are identified by an optional `fingerprint` field:
+- If fingerprint matches an existing device, that device is reused and updated
+- If no match, a new device record is created
+- Helps track "New device login" vs "Known device login" for security
+
+## Activity Logging
+
+All login attempts are logged:
+- **Success**: Logged with method (passkey/device_approval/trust_code) and device info
+- **Failure**: Trust code failures logged with severity "warning"
+- **Recovery**: Key recovery attempts logged separately

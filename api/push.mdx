@@ -1,0 +1,304 @@
+---
+title: 'Push Notifications API'
+description: 'Subscribe to and manage web push notifications'
+---
+
+## Overview
+
+The Push API enables web push notifications using the Web Push Protocol with VAPID authentication. Subscriptions are tied to device sessions.
+
+## Get VAPID Public Key
+
+<RequestExample>
+```bash cURL
+curl https://ave.day/api/push/vapid-key
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 - Configured
+{
+  "enabled": true,
+  "publicKey": "BEL1...xyz"
+}
+```
+
+```json 200 - Not Configured
+{
+  "enabled": false,
+  "message": "Push notifications not configured"
+}
+```
+</ResponseExample>
+
+Returns the VAPID public key for push notification subscriptions. This is a public endpoint that does not require authentication.
+
+<ResponseField name="enabled" type="boolean" required>
+  Whether push notifications are configured on the server
+</ResponseField>
+
+<ResponseField name="publicKey" type="string">
+  Base64-encoded VAPID public key (P-256 ECDSA key). Required for creating push subscriptions. Only present when `enabled` is `true`.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Status message when push is not configured
+</ResponseField>
+
+---
+
+## Subscribe to Push
+
+<RequestExample>
+```bash cURL
+curl -X POST https://ave.day/api/push/subscribe \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/...",
+      "keys": {
+        "p256dh": "BEL1...xyz",
+        "auth": "abc123..."
+      }
+    }
+  }'
+```
+
+```javascript JavaScript
+const registration = await navigator.serviceWorker.ready;
+
+// Get VAPID public key
+const { publicKey } = await fetch('/api/push/vapid-key').then(r => r.json());
+
+// Subscribe to push
+const subscription = await registration.pushManager.subscribe({
+  userVisibleOnly: true,
+  applicationServerKey: publicKey
+});
+
+// Send subscription to server
+await fetch('/api/push/subscribe', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ subscription })
+});
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200
+{
+  "success": true
+}
+```
+
+```json 503
+{
+  "error": "Push notifications not configured"
+}
+```
+</ResponseExample>
+
+Registers a push notification subscription for the current device. Requires authentication.
+
+<ParamField body="subscription" type="object" required>
+  Web Push subscription object from `PushManager.subscribe()`
+  
+  <Expandable title="Subscription Object">
+    <ParamField body="subscription.endpoint" type="string" required>
+      Push service endpoint URL (must be valid URL)
+    </ParamField>
+    
+    <ParamField body="subscription.keys" type="object" required>
+      Encryption keys for push messages
+      
+      <Expandable title="Keys Object">
+        <ParamField body="subscription.keys.p256dh" type="string" required>
+          Client public key for ECDH (Base64-encoded)
+        </ParamField>
+        
+        <ParamField body="subscription.keys.auth" type="string" required>
+          Authentication secret (Base64-encoded)
+        </ParamField>
+      </Expandable>
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="success" type="boolean" required>
+  Returns `true` when subscription is saved
+</ResponseField>
+
+<Note>
+  The subscription is stored on the device record associated with the current session. If no device ID is available in the session, the subscription will not be saved but the request will still succeed.
+</Note>
+
+---
+
+## Unsubscribe from Push
+
+<RequestExample>
+```bash cURL
+curl -X POST https://ave.day/api/push/unsubscribe \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+```javascript JavaScript
+await fetch('/api/push/unsubscribe', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`
+  }
+});
+
+// Also unsubscribe from browser
+const registration = await navigator.serviceWorker.ready;
+const subscription = await registration.pushManager.getSubscription();
+if (subscription) {
+  await subscription.unsubscribe();
+}
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200
+{
+  "success": true
+}
+```
+</ResponseExample>
+
+Removes the push notification subscription for the current device. Requires authentication.
+
+<ResponseField name="success" type="boolean" required>
+  Returns `true` when subscription is removed
+</ResponseField>
+
+<Note>
+  This endpoint only removes the subscription from the server. You should also call `subscription.unsubscribe()` on the browser's PushSubscription object.
+</Note>
+
+---
+
+## Get Push Status
+
+<RequestExample>
+```bash cURL
+curl https://ave.day/api/push/status \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+```javascript JavaScript
+const status = await fetch('/api/push/status', {
+  headers: {
+    'Authorization': `Bearer ${token}`
+  }
+}).then(r => r.json());
+
+if (status.enabled && !status.subscribed) {
+  // User can subscribe to push
+}
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200
+{
+  "subscribed": true,
+  "enabled": true
+}
+```
+</ResponseExample>
+
+Returns the push notification subscription status for the current device. Requires authentication.
+
+<ResponseField name="subscribed" type="boolean" required>
+  Whether the current device has an active push subscription
+</ResponseField>
+
+<ResponseField name="enabled" type="boolean" required>
+  Whether push notifications are configured on the server
+</ResponseField>
+
+## Push Notification Flow
+
+1. **Check if push is enabled**: Call `GET /api/push/vapid-key` to verify server support
+2. **Request permission**: Use browser `Notification.requestPermission()`
+3. **Get public key**: Retrieve VAPID public key from vapid-key endpoint
+4. **Subscribe**: Create subscription with `pushManager.subscribe()` using the public key
+5. **Register subscription**: Send subscription to `POST /api/push/subscribe`
+6. **Receive notifications**: Service worker receives push events
+7. **Unsubscribe** (optional): Call `POST /api/push/unsubscribe` and `subscription.unsubscribe()`
+
+<CodeGroup>
+```javascript Service Worker
+// In your service worker
+self.addEventListener('push', (event) => {
+  const data = event.data?.json() ?? {};
+  
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Notification', {
+      body: data.body,
+      icon: data.icon,
+      badge: data.badge,
+      data: data.data
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  
+  event.waitUntil(
+    clients.openWindow(event.notification.data?.url || '/')
+  );
+});
+```
+
+```javascript Client Setup
+async function setupPush() {
+  // Check if push is supported
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.log('Push notifications not supported');
+    return;
+  }
+  
+  // Check server configuration
+  const config = await fetch('/api/push/vapid-key').then(r => r.json());
+  if (!config.enabled) {
+    console.log('Push not configured on server');
+    return;
+  }
+  
+  // Request permission
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    console.log('Permission denied');
+    return;
+  }
+  
+  // Subscribe
+  const registration = await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: config.publicKey
+  });
+  
+  // Send to server
+  await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ subscription })
+  });
+  
+  console.log('Push subscription registered');
+}
+```
+</CodeGroup>

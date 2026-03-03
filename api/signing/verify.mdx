@@ -1,0 +1,204 @@
+---
+title: "Verify Signature"
+api: "POST /api/signing/verify"
+description: "Verify a cryptographic signature against a message and public key. This is a public endpoint that doesn't require authentication."
+---
+
+## Authentication
+
+This is a public endpoint and does not require authentication.
+
+## Request Body
+
+<ParamField body="message" type="string" required>
+  The original message/payload that was signed
+</ParamField>
+
+<ParamField body="signature" type="string" required>
+  The cryptographic signature to verify
+</ParamField>
+
+<ParamField body="publicKey" type="string" required>
+  The public key to verify the signature against
+</ParamField>
+
+## Response
+
+<ResponseField name="valid" type="boolean">
+  `true` if the signature is valid, `false` otherwise
+</ResponseField>
+
+<ResponseField name="error" type="string">
+  Error message if the public key or signature format is invalid
+</ResponseField>
+
+## Code Example
+
+```typescript
+import { verifySignature } from "ave-sdk";
+
+const config = {
+  issuer: "https://aveid.net", // optional
+};
+
+// Verify a signature
+const result = await verifySignature(config, {
+  message: "Sign this message to authenticate",
+  signature: "base64-encoded-signature-here",
+  publicKey: "base64-encoded-public-key-here",
+});
+
+if (result.valid) {
+  console.log("Signature is valid!");
+} else {
+  console.log("Signature is invalid");
+  if (result.error) {
+    console.log("Error:", result.error);
+  }
+}
+```
+
+## Complete Signing Workflow
+
+Here's a complete example showing the entire signing flow:
+
+```typescript
+import {
+  createSignatureRequest,
+  getSignatureStatus,
+  verifySignature,
+} from "ave-sdk";
+
+const config = {
+  clientId: "your_client_id",
+  clientSecret: "your_client_secret",
+};
+
+// Step 1: Create signature request
+const request = await createSignatureRequest(config, {
+  identityId: "user-identity-uuid",
+  payload: "Sign this to authenticate",
+  expiresInSeconds: 300,
+});
+
+const { requestId, publicKey } = request;
+
+// Step 2: Redirect user to sign
+const signingUrl = `https://aveid.net/sign?requestId=${requestId}`;
+console.log("Redirect user to:", signingUrl);
+
+// Step 3: Poll for signature
+let signature: string | undefined;
+while (true) {
+  const status = await getSignatureStatus(config, requestId);
+  
+  if (status.status === "signed") {
+    signature = status.signature;
+    break;
+  } else if (status.status !== "pending") {
+    throw new Error(`Request ${status.status}`);
+  }
+  
+  await new Promise(resolve => setTimeout(resolve, 2000));
+}
+
+// Step 4: Verify signature
+const verification = await verifySignature(config, {
+  message: "Sign this to authenticate",
+  signature: signature!,
+  publicKey,
+});
+
+if (verification.valid) {
+  console.log("User authenticated successfully!");
+} else {
+  console.log("Signature verification failed");
+}
+```
+
+## Browser Popup Flow
+
+For browser-based applications, the SDK provides a convenient popup helper:
+
+```typescript
+import {
+  createSignatureRequest,
+  openSigningPopup,
+  verifySignature,
+} from "ave-sdk";
+
+const config = {
+  clientId: "your_client_id",
+  clientSecret: "your_client_secret",
+};
+
+// Create request
+const request = await createSignatureRequest(config, {
+  identityId: "user-identity-uuid",
+  payload: "Sign this message",
+});
+
+// Open popup and wait for user to sign
+try {
+  const result = await openSigningPopup(config, request.requestId);
+  
+  if (result.signed && result.signature) {
+    // Verify the signature
+    const verification = await verifySignature(config, {
+      message: "Sign this message",
+      signature: result.signature,
+      publicKey: result.publicKey!,
+    });
+    
+    console.log("Signature valid:", verification.valid);
+  } else {
+    console.log("User denied or closed the popup");
+  }
+} catch (error) {
+  console.error("Popup blocked or error:", error);
+}
+```
+
+## Signature Format
+
+Ave uses Ed25519 signatures:
+
+- **Public keys**: Base64-encoded 32-byte Ed25519 public keys
+- **Signatures**: Base64-encoded 64-byte Ed25519 signatures
+- **Message signing**: The exact payload string is signed (UTF-8 encoded)
+
+## Security Considerations
+
+1. **Always verify signatures server-side** - Don't trust client-provided verification results
+2. **Match the exact payload** - The message must exactly match what was in the original request
+3. **Store public keys securely** - Public keys are returned in the create request response
+4. **Check expiration** - Verify signatures were created before the request expired
+5. **One-time use** - Treat signature requests as single-use tokens
+
+## Error Responses
+
+### Invalid Format Errors
+
+```json
+{
+  "valid": false,
+  "error": "Invalid public key format"
+}
+```
+
+```json
+{
+  "valid": false,
+  "error": "Invalid signature format"
+}
+```
+
+### Invalid Signature
+
+```json
+{
+  "valid": false
+}
+```
+
+When the public key and signature formats are valid but the signature doesn't match the message, the response will simply have `valid: false` without an error message.

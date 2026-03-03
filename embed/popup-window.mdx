@@ -1,0 +1,356 @@
+---
+title: "Popup window"
+description: "Desktop popup window authentication with openAvePopup"
+---
+
+# Popup Window Embedding
+
+The `openAvePopup()` function opens the Ave authentication flow in a separate popup window. This is ideal for desktop applications and follows the traditional OAuth popup pattern.
+
+## Basic Usage
+
+```js
+import { openAvePopup } from "@ave-id/embed";
+
+const popup = openAvePopup({
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  scope: "openid profile email",
+  onSuccess: ({ redirectUrl }) => {
+    window.location.href = redirectUrl;
+  },
+  onError: (payload) => console.error("Popup error", payload),
+  onClose: () => console.log("Popup closed"),
+});
+
+// Later, programmatically close the popup if needed
+// popup?.close();
+```
+
+## Configuration Options
+
+### Required Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `clientId` | string | Your Ave client ID |
+| `redirectUri` | string | OAuth redirect URI for your application |
+
+### Optional Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `scope` | string | `"openid profile email"` | OAuth scopes to request |
+| `issuer` | string | `"https://aveid.net"` | Ave issuer URL |
+| `width` | number | - | Popup window width in pixels |
+| `height` | number | - | Popup window height in pixels |
+| `onSuccess` | function | - | Success callback |
+| `onError` | function | - | Error callback |
+| `onClose` | function | - | Close callback |
+
+## Examples
+
+### Button Trigger
+
+```js
+import { openAvePopup } from "@ave-id/embed";
+
+const signInButton = document.getElementById("sign-in-btn");
+
+signInButton.addEventListener("click", () => {
+  openAvePopup({
+    clientId: "YOUR_CLIENT_ID",
+    redirectUri: "https://yourapp.com/callback",
+    onSuccess: ({ redirectUrl }) => {
+      window.location.href = redirectUrl;
+    },
+    onError: (error) => {
+      alert("Sign in failed. Please try again.");
+    },
+    onClose: () => {
+      console.log("User closed the popup");
+    },
+  });
+});
+```
+
+### Custom Dimensions
+
+```js
+import { openAvePopup } from "@ave-id/embed";
+
+const popup = openAvePopup({
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  width: 500,
+  height: 700,
+  onSuccess: ({ redirectUrl }) => {
+    window.location.href = redirectUrl;
+  },
+});
+```
+
+### React Integration
+
+```jsx
+import { openAvePopup } from "@ave-id/embed";
+
+function SignInButton() {
+  const handleSignIn = () => {
+    const popup = openAvePopup({
+      clientId: process.env.REACT_APP_AVE_CLIENT_ID,
+      redirectUri: `${window.location.origin}/callback`,
+      scope: "openid profile email",
+      width: 480,
+      height: 640,
+      onSuccess: ({ redirectUrl }) => {
+        window.location.href = redirectUrl;
+      },
+      onError: (error) => {
+        console.error("Sign-in error:", error);
+      },
+      onClose: () => {
+        console.log("Popup closed");
+      },
+    });
+  };
+
+  return (
+    <button onClick={handleSignIn}>
+      Sign in with Ave
+    </button>
+  );
+}
+```
+
+### Vue Integration
+
+```vue
+<template>
+  <button @click="handleSignIn">Sign in with Ave</button>
+</template>
+
+<script>
+import { openAvePopup } from "@ave-id/embed";
+
+export default {
+  methods: {
+    handleSignIn() {
+      openAvePopup({
+        clientId: process.env.VUE_APP_AVE_CLIENT_ID,
+        redirectUri: `${window.location.origin}/callback`,
+        scope: "openid profile email",
+        width: 480,
+        height: 640,
+        onSuccess: ({ redirectUrl }) => {
+          window.location.href = redirectUrl;
+        },
+        onError: (error) => {
+          console.error("Sign-in error:", error);
+        },
+        onClose: () => {
+          console.log("Popup closed");
+        },
+      });
+    },
+  },
+};
+</script>
+```
+
+### Programmatic Close
+
+You can programmatically close the popup when needed:
+
+```js
+import { openAvePopup } from "@ave-id/embed";
+
+const popup = openAvePopup({
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  onSuccess: ({ redirectUrl }) => {
+    window.location.href = redirectUrl;
+  },
+});
+
+// Close the popup after 30 seconds if still open
+setTimeout(() => {
+  popup?.close();
+}, 30000);
+```
+
+### With State Parameter
+
+Handle multiple concurrent authentication flows:
+
+```js
+import { openAvePopup } from "@ave-id/embed";
+
+function initiateSignIn(userId) {
+  const state = btoa(JSON.stringify({ userId, timestamp: Date.now() }));
+  
+  openAvePopup({
+    clientId: "YOUR_CLIENT_ID",
+    redirectUri: `https://yourapp.com/callback?state=${state}`,
+    onSuccess: ({ redirectUrl }) => {
+      // Parse state from redirectUrl to match the request
+      window.location.href = redirectUrl;
+    },
+  });
+}
+```
+
+## Return Value
+
+The `openAvePopup()` function returns an object with:
+
+```js
+{
+  close: () => void // Function to programmatically close the popup
+}
+```
+
+## Callbacks
+
+### onSuccess
+
+Called when the user successfully completes authentication:
+
+```js
+onSuccess: ({ redirectUrl }) => {
+  // redirectUrl contains the OAuth callback URL with authorization code
+  window.location.href = redirectUrl;
+}
+```
+
+### onError
+
+Called when an error occurs during the authentication flow:
+
+```js
+onError: (payload) => {
+  console.error("Authentication error:", payload);
+  // Show user-friendly error message
+  alert("Sign in failed. Please try again.");
+}
+```
+
+### onClose
+
+Called when the user closes the popup window:
+
+```js
+onClose: () => {
+  console.log("User closed the popup");
+  // Track analytics, show fallback UI, etc.
+}
+```
+
+<Note>
+The `onClose` callback fires when the user closes the popup, but not when authentication succeeds (use `onSuccess` for that).
+</Note>
+
+## Popup Positioning
+
+The popup window is automatically centered on the user's screen. If you specify custom dimensions, they will be used to calculate the centered position:
+
+```js
+openAvePopup({
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  width: 600,  // 600px wide
+  height: 800, // 800px tall
+  // Will be centered on screen
+});
+```
+
+## Popup Blockers
+
+<Warning>
+**Important:** Popup blockers may prevent the window from opening if:
+
+- The popup is not triggered by a direct user action (e.g., button click)
+- There's a delay between user action and `openAvePopup()` call
+- The user's browser has strict popup blocking settings
+
+Always call `openAvePopup()` synchronously in response to a user event (click, touch, etc.) to avoid popup blockers.
+</Warning>
+
+### Handling Blocked Popups
+
+```js
+import { openAvePopup } from "@ave-id/embed";
+
+function handleSignIn() {
+  try {
+    const popup = openAvePopup({
+      clientId: "YOUR_CLIENT_ID",
+      redirectUri: "https://yourapp.com/callback",
+      onSuccess: ({ redirectUrl }) => {
+        window.location.href = redirectUrl;
+      },
+    });
+
+    if (!popup) {
+      alert("Please allow popups for this site to sign in.");
+    }
+  } catch (error) {
+    console.error("Failed to open popup:", error);
+    // Fallback to inline iframe or sheet
+  }
+}
+```
+
+## Security Considerations
+
+<Warning>
+**Important security notes:**
+
+- Always use HTTPS for your `redirectUri` in production
+- Validate the `redirectUrl` origin before redirecting to prevent open redirects
+- Store your `clientId` securely and avoid hardcoding sensitive values
+- The popup uses postMessage for communication - ensure your CSP allows this
+- Monitor for popup closing to detect if user abandons authentication
+</Warning>
+
+## When to Use
+
+Choose popup windows when:
+
+- Building desktop-focused applications
+- You want to follow traditional OAuth patterns
+- Users may need to reference information in the parent window during sign-in
+- You want to keep the parent window in view while authenticating
+- Your application uses multi-window workflows
+
+## When to Use Alternatives
+
+- **Modal sheet** - For mobile-first applications or native app-like experiences
+- **Inline iframe** - For dedicated sign-in pages with embedded authentication
+
+## Browser Compatibility
+
+<Note>
+Popup windows require:
+- Browser that allows opening new windows
+- postMessage API support
+- JavaScript enabled
+- Popups not blocked by browser or extensions
+
+All modern desktop browsers (Chrome, Firefox, Safari, Edge) are supported, but some browser extensions may interfere with popup behavior.
+</Note>
+
+## Multi-Screen Support
+
+On systems with multiple monitors, the popup will open on the screen containing the parent window and center itself on that screen.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Inline iframe" icon="window" href="/embed/inline-iframe">
+    Embed authentication directly in your page
+  </Card>
+  <Card title="Modal sheet" icon="mobile" href="/embed/modal-sheet">
+    Use a mobile-friendly bottom sheet
+  </Card>
+</CardGroup>

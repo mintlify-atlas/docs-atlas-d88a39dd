@@ -1,122 +1,160 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Ave",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#6366f1",
+    "light": "#818cf8",
+    "dark": "#4f46e5"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/lantharos/ave"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/lantharos/ave"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "how-it-works"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Features",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "features/passwordless-auth",
+              "features/end-to-end-encryption",
+              "features/multi-device-login",
+              "features/oauth-provider",
+              "features/digital-signing"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "User Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "guides/account-setup",
+              "guides/passkey-management",
+              "guides/device-management",
+              "guides/security-settings",
+              "guides/account-recovery"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Integration",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "SDK",
             "pages": [
-              "api-reference/introduction"
+              "sdk/installation",
+              "sdk/oauth-flow",
+              "sdk/client-helpers",
+              "sdk/server-helpers",
+              "sdk/signing-api"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Embed",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "embed/overview",
+              "embed/inline-iframe",
+              "embed/modal-sheet",
+              "embed/popup-window",
+              "embed/connector-flow"
+            ]
+          },
+          {
+            "group": "OAuth & OIDC",
+            "pages": [
+              "oauth/getting-started",
+              "oauth/authorization-flow",
+              "oauth/token-exchange",
+              "oauth/delegated-tokens",
+              "oauth/scopes"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/register",
+              "api/login",
+              "api/devices"
+            ]
+          },
+          {
+            "group": "Identity",
+            "pages": [
+              "api/identities",
+              "api/security",
+              "api/activity"
+            ]
+          },
+          {
+            "group": "OAuth",
+            "pages": [
+              "api/oauth/token",
+              "api/oauth/userinfo",
+              "api/oauth/delegations"
+            ]
+          },
+          {
+            "group": "Signing",
+            "pages": [
+              "api/signing/request",
+              "api/signing/status",
+              "api/signing/verify"
+            ]
+          },
+          {
+            "group": "Applications",
+            "pages": [
+              "api/apps",
+              "api/push"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Security",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "security/overview",
+              "security/webauthn",
+              "security/encryption-model",
+              "security/key-management"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "security/trust-codes",
+              "security/recovery-methods",
+              "security/session-management",
+              "security/best-practices"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

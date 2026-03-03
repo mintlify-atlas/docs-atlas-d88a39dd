@@ -1,0 +1,107 @@
+---
+title: "Get Signature Status"
+api: "GET /api/signing/request/:id/status"
+description: "Poll the status of a signature request to check if the user has signed, denied, or if the request has expired."
+---
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The signature request ID returned from the create request endpoint
+</ParamField>
+
+## Query Parameters
+
+<ParamField query="clientId" type="string" required>
+  Your OAuth app's client ID. Used to verify you own this request.
+</ParamField>
+
+## Response
+
+<ResponseField name="status" type="string">
+  The current status of the signature request. One of:
+  - `pending` - Waiting for user to sign
+  - `signed` - User has signed the payload
+  - `denied` - User denied the signature request
+  - `expired` - Request has expired
+</ResponseField>
+
+<ResponseField name="signature" type="string">
+  The cryptographic signature (only present when status is `signed`)
+</ResponseField>
+
+<ResponseField name="resolvedAt" type="string">
+  ISO 8601 timestamp when the request was resolved (signed, denied, or expired)
+</ResponseField>
+
+## Code Example
+
+```typescript
+import { getSignatureStatus } from "ave-sdk";
+
+const config = {
+  clientId: "your_client_id",
+  issuer: "https://aveid.net", // optional
+};
+
+// Poll for signature status
+const status = await getSignatureStatus(config, "request-id-here");
+
+if (status.status === "signed") {
+  console.log("Signature received:", status.signature);
+  console.log("Signed at:", status.resolvedAt);
+} else if (status.status === "denied") {
+  console.log("User denied the request");
+} else if (status.status === "expired") {
+  console.log("Request expired");
+} else {
+  console.log("Still pending...");
+}
+```
+
+## Polling Strategy
+
+This endpoint is designed for polling. Recommended approach:
+
+```typescript
+import { getSignatureStatus } from "ave-sdk";
+
+const config = {
+  clientId: "your_client_id",
+};
+
+async function waitForSignature(requestId: string, timeoutMs = 300000) {
+  const startTime = Date.now();
+  
+  while (Date.now() - startTime < timeoutMs) {
+    const result = await getSignatureStatus(config, requestId);
+    
+    if (result.status !== "pending") {
+      return result;
+    }
+    
+    // Wait 2 seconds before next poll
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  
+  throw new Error("Timeout waiting for signature");
+}
+
+const result = await waitForSignature("request-id-here");
+console.log("Final status:", result.status);
+```
+
+## Automatic Expiration
+
+If a request's expiration time has passed and the status is still `pending`, this endpoint will automatically update the status to `expired` and return that in the response.
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+### Common Errors
+
+- `404 Not Found` - Request ID not found
+- `403 Forbidden` - The clientId does not match the app that created this request

@@ -1,0 +1,744 @@
+---
+title: Security Best Practices
+description: Comprehensive security guidance for Ave users and developers
+---
+
+## Overview
+
+Ave is built on end-to-end encryption (E2EE) and passwordless authentication. Following these best practices ensures you get the maximum security benefit from Ave's architecture.
+
+## For End Users
+
+### Account Setup
+
+#### Create Strong Passkeys
+
+**Best practices:**
+
+1. **Use platform authenticators** - Touch ID, Face ID, Windows Hello
+2. **Enable passkey sync** - iCloud Keychain, Google Password Manager
+3. **Register multiple passkeys** - Different devices for redundancy
+4. **Name them descriptively** - "MacBook Pro Touch ID", "iPhone 14 Face ID"
+
+See: `TESTING.md:374-382`
+
+**Why:**
+- Biometric authentication is phishing-resistant
+- Synced passkeys work across your devices
+- Multiple passkeys prevent lockout if one device is lost
+- Descriptive names help you identify devices in security dashboard
+
+#### Secure Your Trust Codes
+
+**Storage recommendations:**
+
+1. **Physical copy** - Write on paper, store in safe or lockbox
+2. **Password manager** - Encrypted vault with master password
+3. **Separate locations** - Store the 2 codes in different secure places
+4. **Never digital transmission** - Don't email, text, or send via unsecured channels
+
+See: [Trust Codes](/security/trust-codes#best-practices)
+
+**Why:**
+- Trust codes provide full account access
+- Offline storage protects against remote attacks
+- Redundant storage prevents total lockout
+- Physical copies survive device failures
+
+<Warning>
+Trust codes are reusable. If compromised, regenerate them immediately from Dashboard → Security.
+</Warning>
+
+#### Test Your Recovery Flow
+
+Before you need recovery:
+
+1. **Test passkey login** - Log out and back in using biometric
+2. **Test trust code recovery** - Use incognito window with trust code
+3. **Test device approval** - Request approval from second browser
+4. **Verify data access** - Confirm encrypted data decrypts correctly
+
+See: `TESTING.md:99-298`
+
+**Why:**
+- Confirms recovery methods work before emergency
+- Validates trust codes were saved correctly
+- Identifies issues with your specific browser/device
+- Builds confidence in recovery process
+
+### Daily Usage
+
+#### Monitor Active Devices
+
+**Regular audits:**
+
+1. Navigate to **Dashboard → Devices**
+2. Review all active devices:
+   - Device name and type
+   - Browser and operating system
+   - Last seen timestamp
+   - IP address (if shown)
+3. Revoke any unrecognized devices
+4. Use "Revoke All Devices" if account compromised
+
+See: `TESTING.md:331-355`
+
+**What to look for:**
+- Devices you don't recognize
+- Logins from unexpected locations
+- Old devices you no longer use
+- Duplicate entries for same device (harmless but untidy)
+
+#### Review Activity Logs
+
+**What to check:**
+
+1. Navigate to **Dashboard → Activity Log**
+2. Look for:
+   - **Unexpected logins** - Times or locations you didn't access
+   - **Trust code usage** - Recovery attempts you didn't make
+   - **Device approvals** - Requests you didn't initiate
+   - **Passkey changes** - Added/removed passkeys
+   - **Trust code regeneration** - Changes you didn't perform
+
+See: `TESTING.md:396-421`
+
+**Severity levels:**
+- **Info** (blue) - Normal operations (passkey login, profile updates)
+- **Warning** (yellow) - Security-relevant events (trust code login, passkey removed)
+- **Danger** (red) - Critical security events (account deletion, security resets)
+
+#### Secure Your Sessions
+
+**Best practices:**
+
+1. **Log out on shared devices** - Always click logout on public computers
+2. **Don't share sessions** - Never give someone your logged-in device
+3. **Use trusted networks** - Avoid public WiFi for sensitive operations
+4. **Enable device approval** - Require approval for new device logins
+
+See: `TESTING.md:554-564`
+
+**Why:**
+- Sessions last 30 days by default
+- Anyone with device access can use active session
+- Session cookies are HTTP-only but device access bypasses this
+- Network attacks can intercept non-HTTPS traffic
+
+### Account Recovery
+
+#### When to Use Each Method
+
+**Passkey (preferred):**
+- Daily logins from registered devices
+- Fastest and most convenient
+- Automatic master key recovery with PRF
+
+See: `TESTING.md:70-96`
+
+**Trust codes (emergency):**
+- Lost all passkeys
+- Setting up completely new device
+- No other active sessions available
+
+See: `TESTING.md:99-126`
+
+**Device approval (convenient):**
+- Adding new device while another is active
+- Want to review device info before approving
+- Don't want to retrieve stored trust codes
+
+See: `TESTING.md:156-233`
+
+#### Creating a Recovery Plan
+
+**Document the following (without storing sensitive codes):**
+
+```
+Ave Account Recovery Plan
+--------------------------
+Handle: [your_handle]
+Primary Email: [your_email]
+
+Passkeys Registered:
+- MacBook Pro (Touch ID) - At home
+- iPhone 14 (Face ID) - Always with me
+- iPad Air (Face ID) - At office
+
+Trust Codes Stored:
+- Code 1: [Location description, not the actual code]
+- Code 2: [Different location description]
+
+Trusted Contact:
+- Name: [Person who can help in emergency]
+- Relationship: [Spouse, family member, etc.]
+- Has access to: [Which recovery info they have]
+
+Last Verified: [Date you tested recovery]
+Next Review: [Date to audit again]
+```
+
+**Review quarterly:**
+- Verify passkeys still work
+- Test one trust code
+- Update device list
+- Confirm trusted contact info
+
+### Recognizing Security Threats
+
+#### Phishing Attacks
+
+**What to watch for:**
+
+1. **Fake login pages** - Check URL is exactly your Ave deployment domain
+2. **Unexpected prompts** - Ave never asks for trust codes via email/text
+3. **Urgent messages** - Pressure to "verify account" or "reset security"
+4. **Suspicious approvals** - Device approval requests you didn't initiate
+
+See: `TESTING.md:276-297`
+
+**Protection:**
+- Passkeys are phishing-resistant (domain-bound)
+- Verify URL before entering trust codes
+- Never approve device requests you didn't initiate
+- Check activity log for unauthorized actions
+
+#### Compromised Trust Codes
+
+**Signs your trust codes may be exposed:**
+
+1. Unexpected login events in activity log
+2. New devices you don't recognize
+3. Trust code count decreased without your action
+4. Someone saw your physical/digital storage
+
+**Immediate actions:**
+
+1. Log in using a passkey (if available)
+2. Navigate to **Dashboard → Security**
+3. Click **"Regenerate trust codes"**
+4. Save new codes in secure location
+5. Review activity log for unauthorized access
+6. Revoke suspicious devices
+
+See: `ave-server/src/routes/security.ts:399-428`
+
+<Warning>
+Regenerating trust codes immediately invalidates all old codes. Save the new codes before closing the page.
+</Warning>
+
+## For Developers
+
+### Deployment Security
+
+#### Environment Configuration
+
+**Required security settings:**
+
+```bash
+# Production environment
+NODE_ENV=production
+
+# HTTPS enforcement
+COOKIE_SECURE=true
+RP_ORIGIN=https://yourdomain.com  # Exact production URL
+
+# WebAuthn
+RP_ID=yourdomain.com              # Domain for passkeys
+RP_NAME="Your App Name"
+
+# Cookie configuration
+COOKIE_DOMAIN=.yourdomain.com     # For subdomain sharing
+```
+
+See: `ave-server/src/lib/session-cookie.ts:8,16`
+
+**Why:**
+- `COOKIE_SECURE=true` prevents cookie theft over HTTP
+- Exact `RP_ORIGIN` prevents WebAuthn bypass attacks
+- Correct `RP_ID` ensures passkeys work across your domain
+- `COOKIE_DOMAIN` enables API/frontend separation
+
+#### HTTPS and TLS
+
+**Requirements:**
+
+1. **Use HTTPS everywhere** - No mixed content
+2. **TLS 1.2 minimum** - Preferably TLS 1.3
+3. **Valid certificates** - No self-signed in production
+4. **HSTS headers** - Force HTTPS for all requests
+
+**Implementation:**
+
+```typescript
+// Add to your server
+app.use(async (c, next) => {
+  c.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  await next();
+});
+```
+
+**Why:**
+- Passkeys require secure context (HTTPS or localhost)
+- Session cookies with `secure: true` only sent over HTTPS
+- Prevents man-in-the-middle attacks
+- HSTS prevents protocol downgrade attacks
+
+See: `ave-server/src/lib/session-cookie.ts:26`
+
+#### CORS Configuration
+
+**If frontend and API are separate:**
+
+```typescript
+import { cors } from "hono/cors";
+
+app.use(
+  "*",
+  cors({
+    origin: ["https://app.yourdomain.com"],  // Specific origins only
+    credentials: true,                         // Required for cookies
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+  })
+);
+```
+
+**Why:**
+- `credentials: true` allows cookies in cross-origin requests
+- Specific origins prevent unauthorized API access
+- Restricting methods follows principle of least privilege
+
+<Warning>
+Never use `origin: "*"` with `credentials: true`. This is a security vulnerability.
+</Warning>
+
+### Database Security
+
+#### Sensitive Data Handling
+
+**What's stored in the database:**
+
+| Data | Format | Client Can Read? | Server Can Read? |
+|------|--------|------------------|------------------|
+| Master key | Encrypted backup | Yes (after decryption) | No |
+| Trust codes | SHA-256 hash | No | No (only verify) |
+| Session tokens | SHA-256 hash | No | No (only verify) |
+| Passkey public keys | Base64 | N/A (public key) | Yes (public key) |
+| Security answers | REMOVED | N/A | N/A |
+
+See: `TESTING.md:475-493`
+
+**Encryption points:**
+
+1. **Client-side E2EE:**
+   - Master key generated in browser
+   - Never transmitted in plaintext
+   - All data encryption happens client-side
+
+See: `TESTING.md:49`
+
+2. **Server-side hashing:**
+   - Session tokens hashed with SHA-256
+   - Trust codes hashed with SHA-256
+   - Passkey challenges ephemeral (not stored)
+
+See: `ave-server/src/lib/crypto.ts:36-40,66-68`
+
+#### Database Access Control
+
+**Best practices:**
+
+1. **Principle of least privilege** - Application user can't drop tables
+2. **Read-only replicas** - Analytics queries don't touch primary
+3. **Audit logging** - Track who accesses sensitive tables
+4. **Encryption at rest** - Database files encrypted on disk
+5. **Network isolation** - Database not publicly accessible
+
+**Example PostgreSQL setup:**
+
+```sql
+-- Create limited application user
+CREATE USER ave_app WITH PASSWORD 'strong_password';
+
+-- Grant only necessary permissions
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ave_app;
+REVOKE DROP, TRUNCATE ON ALL TABLES IN SCHEMA public FROM ave_app;
+
+-- Read-only user for analytics
+CREATE USER ave_readonly WITH PASSWORD 'another_strong_password';
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO ave_readonly;
+```
+
+### Rate Limiting
+
+#### Recommended Limits
+
+**Authentication endpoints:**
+
+```typescript
+import { rateLimiter } from "hono-rate-limiter";
+
+// Login attempts
+app.use(
+  "/api/login/*",
+  rateLimiter({
+    windowMs: 15 * 60 * 1000,  // 15 minutes
+    limit: 10,                  // 10 attempts per window
+    standardHeaders: "draft-7",
+    keyGenerator: (c) => c.req.header("x-forwarded-for") || "unknown",
+  })
+);
+
+// Trust code attempts (stricter)
+app.use(
+  "/api/login/trust-code",
+  rateLimiter({
+    windowMs: 60 * 60 * 1000,  // 1 hour
+    limit: 3,                   // 3 attempts per hour
+    standardHeaders: "draft-7",
+    keyGenerator: (c) => {
+      // Combine IP + handle for key
+      const ip = c.req.header("x-forwarded-for") || "unknown";
+      const body = await c.req.json();
+      return `${ip}:${body.handle}`;
+    },
+  })
+);
+```
+
+See: `TESTING.md:566-569`
+
+**Why:**
+- Prevents brute-force attacks on trust codes
+- Limits automated account enumeration
+- Slows down credential stuffing attacks
+- Protects against denial-of-service
+
+#### CAPTCHA Integration
+
+**Recommended for:**
+- Registration (prevent bot accounts)
+- Trust code login (high-value recovery method)
+- After multiple failed login attempts
+
+**Implementation with hCaptcha:**
+
+```typescript
+import { verify } from "hcaptcha";
+
+app.post("/register", async (c) => {
+  const { captchaToken, ...userData } = await c.req.json();
+  
+  // Verify CAPTCHA
+  const result = await verify(
+    process.env.HCAPTCHA_SECRET!,
+    captchaToken
+  );
+  
+  if (!result.success) {
+    return c.json({ error: "CAPTCHA verification failed" }, 400);
+  }
+  
+  // Proceed with registration...
+});
+```
+
+See: `TESTING.md:590`
+
+### Monitoring and Alerts
+
+#### Security Event Monitoring
+
+**Events to monitor:**
+
+1. **High-frequency failed logins** - Brute-force attempts
+2. **Trust code usage spikes** - Potential breach
+3. **Multiple device approvals** - Session compromise
+4. **Geographic anomalies** - Login from unusual location
+5. **User agent changes** - Session hijacking
+
+**Example alerting logic:**
+
+```typescript
+// After failed trust code attempt
+const recentFailures = await db
+  .select()
+  .from(activityLogs)
+  .where(
+    and(
+      eq(activityLogs.action, "trust_code_failed"),
+      gt(activityLogs.createdAt, new Date(Date.now() - 60 * 60 * 1000)) // Last hour
+    )
+  );
+
+if (recentFailures.length > 5) {
+  await sendAdminAlert({
+    severity: "high",
+    message: `${recentFailures.length} failed trust code attempts in last hour`,
+    userId: recentFailures[0].userId,
+  });
+}
+```
+
+See: `ave-server/src/routes/login.ts:573-580`
+
+#### User Notifications
+
+**Notify users of:**
+
+1. **New device login** - Email/push notification
+2. **Trust code usage** - Always notify (recovery method)
+3. **Passkey added/removed** - Security setting change
+4. **Trust codes regenerated** - Critical security change
+5. **All devices revoked** - Emergency action
+
+**Example email:**
+
+```
+Subject: New login to your Ave account
+
+Hi [Name],
+
+We detected a new login to your account:
+
+Device: Chrome on Mac
+Location: San Francisco, CA
+IP: 192.0.2.1
+Time: Jan 1, 2026 3:45 PM PST
+
+If this was you, no action needed.
+
+If this wasn't you:
+1. Go to Dashboard → Devices
+2. Revoke the suspicious device
+3. Regenerate your trust codes
+
+[View Activity Log]
+```
+
+### Code Security
+
+#### Input Validation
+
+**Always validate:**
+
+```typescript
+import { z } from "zod";
+import { zValidator } from "@hono/zod-validator";
+
+app.post(
+  "/api/login/trust-code",
+  zValidator(
+    "json",
+    z.object({
+      handle: z.string().min(3).max(32),  // Length limits
+      code: z.string(),                    // Will be normalized
+      device: z.object({
+        name: z.string().max(64),
+        type: z.enum(["phone", "computer", "tablet"]),
+        browser: z.string().optional(),
+        os: z.string().optional(),
+        fingerprint: z.string().max(64).optional(),
+      }),
+    })
+  ),
+  async (c) => {
+    const validated = c.req.valid("json");
+    // Safe to use validated data
+  }
+);
+```
+
+See: `ave-server/src/routes/login.ts:517-528`
+
+**Why:**
+- Prevents injection attacks
+- Enforces business logic constraints
+- Type-safe throughout application
+- Clear error messages for invalid input
+
+#### SQL Injection Prevention
+
+**Use Drizzle ORM, never raw SQL:**
+
+```typescript
+// GOOD: Parameterized query via ORM
+const [user] = await db
+  .select()
+  .from(users)
+  .where(eq(users.id, userId))
+  .limit(1);
+
+// BAD: Raw SQL with string interpolation
+const user = await db.execute(
+  `SELECT * FROM users WHERE id = '${userId}'`  // VULNERABLE!
+);
+```
+
+**Why:**
+- ORM automatically parameterizes queries
+- No SQL injection risk
+- Type-safe database operations
+
+#### Dependency Management
+
+**Best practices:**
+
+1. **Pin versions** - Use exact versions in package.json
+2. **Audit regularly** - Run `bun audit` or `npm audit`
+3. **Update promptly** - Apply security patches quickly
+4. **Review changes** - Read changelogs before updating
+5. **Minimal dependencies** - Only install what you need
+
+**Automated auditing:**
+
+```bash
+# Check for vulnerabilities
+bun audit
+
+# Fix automatically (review first!)
+bun audit fix
+
+# Use in CI/CD
+- run: bun audit --level high
+```
+
+## Compliance Considerations
+
+### GDPR Compliance
+
+Ave includes built-in GDPR features:
+
+1. **Data export** - Users can download all their data as JSON
+2. **Account deletion** - Complete data removal with confirmation
+3. **Consent tracking** - (Implement in your UI)
+4. **Data minimization** - Optional fields marked clearly
+
+See: `TESTING.md:425-443`
+
+**Implementation checklist:**
+
+- [ ] Privacy policy displayed during registration
+- [ ] Consent checkbox for data processing
+- [ ] Email notification before deletion
+- [ ] 30-day grace period for account recovery
+- [ ] Data export includes all user data
+- [ ] Deletion removes all PII
+
+### Data Retention
+
+**Recommended policies:**
+
+1. **Active sessions** - 30 days, then expire
+2. **Activity logs** - 90 days, then archive/delete
+3. **Expired sessions** - 7 days, then delete
+4. **Login requests** - Delete immediately after use/expiration
+
+**Implementation:**
+
+```typescript
+// Cleanup job (run daily)
+export async function cleanupOldData() {
+  const now = new Date();
+  
+  // Delete expired sessions
+  await db.delete(sessions)
+    .where(lt(sessions.expiresAt, now));
+  
+  // Delete old activity logs
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  await db.delete(activityLogs)
+    .where(lt(activityLogs.createdAt, ninetyDaysAgo));
+  
+  // Delete expired login requests
+  await db.delete(loginRequests)
+    .where(lt(loginRequests.expiresAt, now));
+}
+```
+
+## Incident Response
+
+### If Trust Codes Are Compromised
+
+1. **Log in via passkey** (if available)
+2. **Regenerate trust codes** immediately
+3. **Review activity log** for unauthorized access
+4. **Revoke suspicious devices**
+5. **Check for unauthorized changes** (profile, settings)
+6. **Notify affected users** if multi-tenant
+
+See: `ave-server/src/routes/security.ts:399-428`
+
+### If Database Is Breached
+
+**Data exposure risk:**
+
+- ✅ **Master keys:** Encrypted, attacker can't decrypt
+- ✅ **Trust codes:** Hashed with SHA-256, not reversible
+- ✅ **Session tokens:** Hashed with SHA-256, not reversible
+- ⚠️ **Passkey public keys:** Public data, not sensitive
+- ⚠️ **Device info:** IP addresses, user agents visible
+- ⚠️ **Activity logs:** Actions, timestamps visible
+
+**Immediate actions:**
+
+1. **Revoke all sessions** - Force re-authentication
+2. **Rotate database credentials**
+3. **Notify users** - Advise regenerating trust codes
+4. **Audit access logs** - Identify what was accessed
+5. **Patch vulnerability** - Prevent repeat breach
+
+See: `TESTING.md:475-493`
+
+**User communication:**
+
+```
+Subject: Security Notice - Action Required
+
+We detected unauthorized access to our database on [DATE].
+
+Your master key and trust codes remain secure (they're encrypted/hashed).
+
+However, as a precaution:
+1. We've logged you out of all devices
+2. Please log back in using your passkey
+3. Regenerate your trust codes (Dashboard → Security)
+4. Review your activity log for suspicious activity
+
+What we know:
+- [Summary of breach]
+- [What data was accessed]
+- [What we're doing about it]
+
+[Link to detailed post-mortem]
+```
+
+### If Session Token Is Stolen
+
+**Indicators:**
+
+1. Activity log shows unexpected actions
+2. User reports they didn't perform certain actions
+3. IP address / user agent changes mid-session
+
+**Response:**
+
+1. **Revoke the session** - Delete from database
+2. **Notify the user** - Email about suspicious activity
+3. **Review activity log** - Identify what attacker did
+4. **Undo malicious changes** - Restore profile, settings
+5. **Investigate** - How was token stolen?
+
+**Prevention going forward:**
+
+- Bind sessions to IP address (strict)
+- Detect user agent changes
+- Implement device fingerprinting
+- Shorter session expiration
+- Re-authentication for sensitive actions
+
+## Related Topics
+
+- [Trust Codes](/security/trust-codes) - Trust code generation and usage
+- [Recovery Methods](/security/recovery-methods) - All recovery options
+- [Session Management](/security/session-management) - Session tokens and cookies

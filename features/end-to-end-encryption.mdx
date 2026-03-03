@@ -1,0 +1,407 @@
+---
+title: "End-to-End Encryption"
+description: "Client-side encryption ensures Ave never sees your unencrypted data"
+---
+
+Ave implements **true end-to-end encryption** where your data is encrypted in the browser before being sent to our servers. Ave cannot decrypt your data, even if compelled by law enforcement.
+
+## Master Key Architecture
+
+Every Ave account has a **master key** generated on the client:
+
+```typescript
+// Client-side key generation (never sent to server)
+const masterKey = await crypto.subtle.generateKey(
+  { name: 'AES-GCM', length: 256 },
+  true, // extractable
+  ['encrypt', 'decrypt']
+);
+
+// Export for storage
+const masterKeyBytes = await crypto.subtle.exportKey('raw', masterKey);
+const masterKeyB64 = btoa(String.fromCharCode(...new Uint8Array(masterKeyBytes)));
+
+// Store in localStorage (encrypted at rest by browser)
+localStorage.setItem('ave_master_key', masterKeyB64);
+```
+
+The master key:
+- Never leaves your device in plaintext
+- Encrypts all your sensitive data (OAuth tokens, signing keys, etc.)
+- Can be backed up using trust codes
+- Can be protected by passkey PRF (hardware-backed encryption)
+
+## Encryption Workflow
+
+<Steps>
+  <Step title="Master key generation">
+    During registration, Ave generates a 256-bit AES-GCM master key in your browser. This key is stored in `localStorage` and never transmitted to the server.
+  </Step>
+  
+  <Step title="Trust code backup">
+    Your master key is encrypted with your trust codes and stored on Ave's servers as `encryptedMasterKeyBackup`. Only someone with a valid trust code can decrypt this backup.
+  </Step>
+  
+  <Step title="Data encryption">
+    When you authorize OAuth apps or create signing keys, the data is encrypted with your master key before transmission:
+    
+    ```typescript
+    // Encrypt app-specific key with master key
+    const appKey = await crypto.subtle.generateKey(
+      { name: 'AES-GCM', length: 256 },
+      true,
+      ['encrypt', 'decrypt']
+    );
+    
+    const encryptedAppKey = await encryptWithMasterKey(appKey);
+    
+    // Only encrypted version is sent to Ave
+    await fetch('/api/oauth/authorize', {
+      body: JSON.stringify({ encryptedAppKey })
+    });
+    ```
+  </Step>
+  
+  <Step title="Decryption on retrieval">
+    When you log in, Ave returns the encrypted data. Your browser decrypts it using the master key from `localStorage` or recovered from trust codes.
+  </Step>
+</Steps>
+
+## Trust Code System
+
+Trust codes are **recovery keys** that decrypt your master key backup.
+
+### Trust Code Format
+
+```
+ABCDE-FGHIJ-KLMNO-PQRST-UVWXY
+```
+
+- 5 segments of 5 characters each
+- Uses base-32 alphabet (excludes confusing characters like `0`, `O`, `I`, `1`)
+- Generated using cryptographically secure random bytes
+
+<Info>
+  Trust codes are **case-insensitive** and **separator-agnostic**. You can enter them with or without dashes.
+</Info>
+
+### Trust Code Generation
+
+From `crypto.ts:16-33`:
+
+```typescript
+export function generateTrustCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const segments = 5;
+  const segmentLength = 5;
+  
+  const parts: string[] = [];
+  for (let i = 0; i < segments; i++) {
+    let segment = "";
+    for (let j = 0; j < segmentLength; j++) {
+      const randomIndex = randomBytes(1)[0] % chars.length;
+      segment += chars[randomIndex];
+    }
+    parts.push(segment);
+  }
+  
+  return parts.join("-");
+}
+```
+
+### Trust Code Storage
+
+Ave **never stores trust codes in plaintext**. Only SHA-256 hashes are stored:
+
+```typescript
+// From crypto.ts:36-40
+export function hashTrustCode(code: string): string {
+  const normalized = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
+// Database stores only the hash
+await db.insert(trustCodes).values({
+  userId: user.id,
+  codeHash: hashTrustCode(code)
+});
+```
+
+When you use a trust code to recover your account:
+
+1. You enter the trust code
+2. Ave hashes it and compares to stored hashes
+3. If match found, Ave returns `encryptedMasterKeyBackup`
+4. Your browser derives a decryption key from the trust code
+5. Master key is decrypted locally
+
+<Warning>
+  Trust codes are **reusable** but should be treated like passwords. Store them in a password manager or write them down in a secure location.
+</Warning>
+
+## PRF Extension (Advanced)
+
+Ave supports the **WebAuthn PRF extension** for hardware-backed master key encryption.
+
+### How PRF Works
+
+PRF (Pseudo-Random Function) allows passkeys to derive a cryptographic secret that never leaves the secure enclave:
+
+```typescript
+// During registration, check if PRF is available
+const registration = await navigator.credentials.create({
+  publicKey: {
+    ...registrationOptions,
+    extensions: {
+      prf: {}
+    }
+  }
+});
+
+if (registration.getClientExtensionResults().prf?.enabled) {
+  // PRF is supported! Use it to encrypt master key
+  const prfOutput = await deriveFromPRF(passkey);
+  const prfEncryptedMasterKey = await encrypt(masterKey, prfOutput);
+  
+  // Store alongside passkey
+  await fetch('/api/register/complete', {
+    body: JSON.stringify({ prfEncryptedMasterKey })
+  });
+}
+```
+
+From `register.ts:186-187`:
+
+```typescript
+// Store PRF-encrypted master key if provided
+prfEncryptedMasterKey: data.prfEncryptedMasterKey,
+```
+
+When logging in with a PRF-enabled passkey:
+
+```typescript
+// From login.ts:305-310
+return c.json({
+  prfEncryptedMasterKey: passkey.prfEncryptedMasterKey,
+  needsMasterKey: !passkey.prfEncryptedMasterKey,
+});
+```
+
+Your browser can decrypt the master key without relying on trust codes:
+
+```typescript
+if (response.prfEncryptedMasterKey) {
+  const prfOutput = await deriveFromPRF(credential);
+  const masterKey = await decrypt(response.prfEncryptedMasterKey, prfOutput);
+  localStorage.setItem('ave_master_key', masterKey);
+}
+```
+
+<Note>
+  PRF is currently supported on:
+  - **macOS**: Chrome/Edge with iCloud Keychain
+  - **Windows**: Chrome/Edge with Windows Hello (TPM required)
+  - **iOS/Android**: Limited support (coming soon)
+</Note>
+
+## OAuth App Encryption
+
+When you authorize OAuth apps, Ave encrypts app-specific keys with your master key.
+
+### App Key Derivation
+
+```typescript
+// Client generates unique key for each OAuth app
+const appKey = await crypto.subtle.generateKey(
+  { name: 'AES-GCM', length: 256 },
+  true,
+  ['encrypt', 'decrypt']
+);
+
+// Encrypt with master key
+const iv = crypto.getRandomValues(new Uint8Array(12));
+const encryptedAppKey = await crypto.subtle.encrypt(
+  { name: 'AES-GCM', iv },
+  masterKey,
+  await crypto.subtle.exportKey('raw', appKey)
+);
+
+// Send to Ave (server cannot decrypt)
+await fetch('/api/oauth/authorize', {
+  method: 'POST',
+  body: JSON.stringify({
+    clientId: 'app_123',
+    encryptedAppKey: btoa(String.fromCharCode(...new Uint8Array(encryptedAppKey)))
+  })
+});
+```
+
+From `oauth.ts:252-254`:
+
+```typescript
+if (oauthApp.supportsE2ee && !encryptedAppKey && !existingAuth?.encryptedAppKey) {
+  return c.json({ error: "E2EE app requires encryptedAppKey" }, 400);
+}
+```
+
+### Token Exchange with E2EE
+
+When an OAuth app requests tokens, Ave returns the encrypted app key:
+
+```typescript
+// From oauth.ts:859-862
+if (oauthApp.supportsE2ee && authCode.encryptedAppKey) {
+  response.encrypted_app_key = authCode.encryptedAppKey;
+}
+```
+
+The app receives:
+- `access_token`: Opaque token for API calls
+- `encrypted_app_key`: Encrypted with user's master key
+
+Apps that support E2EE can:
+
+1. Ask user to decrypt the app key with their master key
+2. Use the decrypted app key to encrypt app-specific data
+3. Store encrypted data on Ave or their own servers
+
+## Master Key Recovery
+
+If you log in on a new device without your master key:
+
+### Option 1: Trust Code Recovery
+
+```typescript
+// POST /api/login/recover-key
+{
+  "handle": "alice",
+  "code": "ABCDE-FGHIJ-KLMNO-PQRST-UVWXY"
+}
+
+// Returns encrypted backup
+{
+  "success": true,
+  "encryptedMasterKeyBackup": "base64-encrypted-data"
+}
+```
+
+From `login.ts:661-738`, this endpoint:
+- Verifies the trust code hash
+- Returns `encryptedMasterKeyBackup` from the database
+- Does NOT create a session (recovery only)
+- Client decrypts locally using trust code as key
+
+### Option 2: Device Approval Transfer
+
+When you approve a login from another device, the master key is transferred securely:
+
+```typescript
+// Approving device (has master key)
+const ephemeralKeyPair = await crypto.subtle.generateKey(
+  { name: 'ECDH', namedCurve: 'P-256' },
+  true,
+  ['deriveKey']
+);
+
+const sharedSecret = await crypto.subtle.deriveKey(
+  { name: 'ECDH', public: requesterPublicKey },
+  ephemeralKeyPair.privateKey,
+  { name: 'AES-GCM', length: 256 },
+  false,
+  ['encrypt']
+);
+
+const encryptedMasterKey = await crypto.subtle.encrypt(
+  { name: 'AES-GCM', iv },
+  sharedSecret,
+  masterKey
+);
+
+// Send to server
+await fetch('/api/login-requests/:id/approve', {
+  body: JSON.stringify({
+    encryptedMasterKey,
+    approverPublicKey: ephemeralKeyPair.publicKey
+  })
+});
+```
+
+From `login.ts:426-432`:
+
+```typescript
+if (request.status === "approved" && request.encryptedMasterKey) {
+  return c.json({
+    status: "approved",
+    encryptedMasterKey: request.encryptedMasterKey,
+    approverPublicKey: request.approverPublicKey,
+  });
+}
+```
+
+The requesting device decrypts with its ephemeral private key.
+
+## Security Guarantees
+
+### What Ave Cannot Access
+
+- Your master key in plaintext
+- Decrypted OAuth app keys
+- Decrypted signing private keys
+- Trust code plaintext
+- PRF outputs from your passkeys
+
+### What Ave Can Access
+
+- Encrypted master key backups (encrypted with trust codes)
+- Encrypted app keys (encrypted with master key)
+- Metadata (handles, display names, timestamps)
+- Activity logs (actions, IP addresses, device info)
+
+### Zero-Knowledge Architecture
+
+Ave implements **zero-knowledge encryption**:
+
+```typescript
+// Server code from register.ts:154
+await db.insert(users).values({}); // No master key field
+
+// Client sets backup after encryption
+await fetch('/api/register/finalize-backup', {
+  body: JSON.stringify({
+    encryptedMasterKeyBackup: await encryptWithTrustCodes(masterKey)
+  })
+});
+```
+
+Even if Ave's database is compromised:
+- Attackers get encrypted blobs
+- No trust codes are stored in plaintext
+- No master keys are recoverable
+- User data remains private
+
+<Warning>
+  If you lose all passkeys AND all trust codes, your account is **permanently unrecoverable**. Ave cannot reset your encryption keys.
+</Warning>
+
+## Encryption in Transit
+
+All Ave API calls use **TLS 1.3** with perfect forward secrecy:
+
+```
+TLS_AES_128_GCM_SHA256
+TLS_AES_256_GCM_SHA384
+TLS_CHACHA20_POLY1305_SHA256
+```
+
+Even though data is already encrypted client-side, TLS prevents man-in-the-middle attacks.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Passwordless Auth" icon="fingerprint" href="/features/passwordless-auth">
+    Understand WebAuthn passkey authentication
+  </Card>
+  <Card title="Digital Signing" icon="signature" href="/features/digital-signing">
+    Sign documents with end-to-end encrypted keys
+  </Card>
+</CardGroup>

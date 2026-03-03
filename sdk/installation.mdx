@@ -1,0 +1,77 @@
+---
+title: Installation
+description: Install the Ave SDK for OAuth and digital signatures
+---
+
+The `@ave-id/sdk` package provides typed helpers for implementing Ave OAuth, OIDC flows, and digital signature functionality in your application.
+
+## Install the SDK
+
+<CodeGroup>
+```bash npm
+npm install @ave-id/sdk
+```
+
+```bash yarn
+yarn add @ave-id/sdk
+```
+
+```bash pnpm
+pnpm add @ave-id/sdk
+```
+</CodeGroup>
+
+## Package Structure
+
+The SDK is organized into multiple entry points for different use cases:
+
+<CardGroup cols={3}>
+  <Card title="Main Export" icon="box">
+    Core OAuth functions and utilities
+    ```ts
+    import { buildAuthorizeUrl } from "@ave-id/sdk";
+    ```
+  </Card>
+  
+  <Card title="Client Helpers" icon="browser">
+    Browser-side OAuth flows
+    ```ts
+    import { startPkceLogin } from "@ave-id/sdk/client";
+    ```
+  </Card>
+  
+  <Card title="Server Helpers" icon="server">
+    Server-side token exchange
+    ```ts
+    import { exchangeCodeServer } from "@ave-id/sdk/server";
+    ```
+  </Card>
+</CardGroup>
+
+## TypeScript Support
+
+The SDK is written in TypeScript and includes full type definitions. All types are exported from the main package:
+
+```ts
+import type { TokenResponse, UserInfo, Scope } from "@ave-id/sdk";
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="OAuth Flow" icon="arrow-right-to-bracket" href="/sdk/oauth-flow">
+    Implement OAuth login in your application
+  </Card>
+  
+  <Card title="Client Helpers" icon="browser" href="/sdk/client-helpers">
+    Use pre-built client-side login functions
+  </Card>
+  
+  <Card title="Server Helpers" icon="server" href="/sdk/server-helpers">
+    Exchange authorization codes on your backend
+  </Card>
+  
+  <Card title="Signing API" icon="signature" href="/sdk/signing-api">
+    Request and verify digital signatures
+  </Card>
+</CardGroup>

@@ -1,0 +1,660 @@
+---
+title: 'OAuth Apps API'
+description: 'Manage OAuth applications and API resources'
+---
+
+## Authentication
+
+All endpoints require authentication via:
+- Bearer token in `Authorization` header, or
+- Active session cookie
+
+## List Apps
+
+<RequestExample>
+```bash cURL
+curl https://ave.day/api/apps \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200
+{
+  "apps": [
+    {
+      "id": "app_123",
+      "clientId": "app_abc123...",
+      "name": "My Application",
+      "description": "Application description",
+      "websiteUrl": "https://example.com",
+      "iconUrl": "https://example.com/icon.png",
+      "redirectUris": ["https://example.com/callback"],
+      "supportsE2ee": false,
+      "allowedScopes": ["openid", "profile", "email", "offline_access"],
+      "accessTokenTtlSeconds": 3600,
+      "refreshTokenTtlSeconds": 2592000,
+      "allowUserIdScope": false,
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "resources": [
+        {
+          "id": "res_123",
+          "resourceKey": "api:read",
+          "displayName": "API Access",
+          "description": "Read access to API",
+          "scopes": ["read", "write"],
+          "audience": "https://api.example.com",
+          "status": "active"
+        }
+      ]
+    }
+  ]
+}
+```
+</ResponseExample>
+
+Returns all OAuth applications owned by the authenticated user, including associated resources.
+
+<ResponseField name="apps" type="array">
+  Array of OAuth applications
+  
+  <Expandable title="App Object">
+    <ResponseField name="id" type="string" required>
+      Unique app identifier
+    </ResponseField>
+    
+    <ResponseField name="clientId" type="string" required>
+      OAuth 2.0 client ID (format: `app_*`)
+    </ResponseField>
+    
+    <ResponseField name="name" type="string" required>
+      Application name (2-64 characters)
+    </ResponseField>
+    
+    <ResponseField name="description" type="string">
+      Application description (max 200 characters)
+    </ResponseField>
+    
+    <ResponseField name="websiteUrl" type="string">
+      Application website URL
+    </ResponseField>
+    
+    <ResponseField name="iconUrl" type="string">
+      Application icon URL
+    </ResponseField>
+    
+    <ResponseField name="redirectUris" type="string[]" required>
+      Allowed OAuth redirect URIs
+    </ResponseField>
+    
+    <ResponseField name="supportsE2ee" type="boolean" required>
+      Whether app supports end-to-end encryption
+    </ResponseField>
+    
+    <ResponseField name="allowedScopes" type="string[]" required>
+      Allowed OAuth scopes. Valid values: `openid`, `profile`, `email`, `offline_access`, `user_id`
+    </ResponseField>
+    
+    <ResponseField name="accessTokenTtlSeconds" type="number" required>
+      Access token lifetime in seconds (300-86400)
+    </ResponseField>
+    
+    <ResponseField name="refreshTokenTtlSeconds" type="number" required>
+      Refresh token lifetime in seconds (3600-31536000)
+    </ResponseField>
+    
+    <ResponseField name="allowUserIdScope" type="boolean" required>
+      Whether `user_id` scope is allowed
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string" required>
+      ISO 8601 timestamp of creation
+    </ResponseField>
+    
+    <ResponseField name="resources" type="array" required>
+      Array of API resources associated with this app
+      
+      <Expandable title="Resource Object">
+        <ResponseField name="id" type="string" required>
+          Unique resource identifier
+        </ResponseField>
+        
+        <ResponseField name="resourceKey" type="string" required>
+          Resource key (3-100 chars, lowercase alphanumeric with `:_-`)
+        </ResponseField>
+        
+        <ResponseField name="displayName" type="string" required>
+          Display name (2-80 characters)
+        </ResponseField>
+        
+        <ResponseField name="description" type="string">
+          Resource description (max 240 characters)
+        </ResponseField>
+        
+        <ResponseField name="scopes" type="string[]" required>
+          Available scopes for this resource
+        </ResponseField>
+        
+        <ResponseField name="audience" type="string" required>
+          JWT audience value for this resource
+        </ResponseField>
+        
+        <ResponseField name="status" type="string" required>
+          Resource status: `active` or `disabled`
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Create App
+
+<RequestExample>
+```bash cURL
+curl -X POST https://ave.day/api/apps \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Application",
+    "description": "My app description",
+    "redirectUris": ["https://example.com/callback"],
+    "allowedScopes": ["openid", "profile", "email"],
+    "accessTokenTtlSeconds": 3600
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200
+{
+  "app": {
+    "id": "app_123",
+    "clientId": "app_abc123...",
+    "name": "My Application",
+    "description": "My app description",
+    "websiteUrl": null,
+    "iconUrl": null,
+    "redirectUris": ["https://example.com/callback"],
+    "supportsE2ee": false,
+    "allowedScopes": ["openid", "profile", "email"],
+    "accessTokenTtlSeconds": 3600,
+    "refreshTokenTtlSeconds": 2592000,
+    "allowUserIdScope": false,
+    "createdAt": "2024-01-01T00:00:00.000Z"
+  },
+  "clientSecret": "secret_xyz789..."
+}
+```
+</ResponseExample>
+
+Creates a new OAuth application. Returns the app details and `clientSecret` (shown only once).
+
+<ParamField body="name" type="string" required>
+  Application name (2-64 characters)
+</ParamField>
+
+<ParamField body="description" type="string">
+  Application description (max 200 characters)
+</ParamField>
+
+<ParamField body="websiteUrl" type="string">
+  Application website URL (must be valid URL)
+</ParamField>
+
+<ParamField body="iconUrl" type="string">
+  Application icon URL (must be valid URL)
+</ParamField>
+
+<ParamField body="redirectUris" type="string[]" required>
+  OAuth redirect URIs (at least one required, must be valid URLs)
+</ParamField>
+
+<ParamField body="supportsE2ee" type="boolean" default="false">
+  Whether app supports end-to-end encryption
+</ParamField>
+
+<ParamField body="allowedScopes" type="string[]" default='["openid", "profile", "email", "offline_access"]'>
+  Allowed OAuth scopes. Valid values: `openid`, `profile`, `email`, `offline_access`, `user_id`
+</ParamField>
+
+<ParamField body="accessTokenTtlSeconds" type="number" default="3600">
+  Access token lifetime in seconds (300-86400)
+</ParamField>
+
+<ParamField body="refreshTokenTtlSeconds" type="number" default="2592000">
+  Refresh token lifetime in seconds (3600-31536000, default 30 days)
+</ParamField>
+
+<ParamField body="allowUserIdScope" type="boolean" default="false">
+  Whether `user_id` scope is allowed
+</ParamField>
+
+<ResponseField name="app" type="object" required>
+  The created OAuth application (see List Apps for structure)
+</ResponseField>
+
+<ResponseField name="clientSecret" type="string" required>
+  Client secret for OAuth authentication. **Save this immediately** - it cannot be retrieved later.
+</ResponseField>
+
+---
+
+## Update App
+
+<RequestExample>
+```bash cURL
+curl -X PATCH https://ave.day/api/apps/{appId} \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Updated Name",
+    "redirectUris": ["https://example.com/new-callback"]
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200
+{
+  "app": {
+    "id": "app_123",
+    "clientId": "app_abc123...",
+    "name": "Updated Name",
+    "description": "My app description",
+    "websiteUrl": null,
+    "iconUrl": null,
+    "redirectUris": ["https://example.com/new-callback"],
+    "supportsE2ee": false,
+    "allowedScopes": ["openid", "profile", "email"],
+    "accessTokenTtlSeconds": 3600,
+    "refreshTokenTtlSeconds": 2592000,
+    "allowUserIdScope": false,
+    "createdAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+```json 404
+{
+  "error": "App not found"
+}
+```
+</ResponseExample>
+
+Updates an existing OAuth application. All fields are optional - only provided fields are updated.
+
+<ParamField path="appId" type="string" required>
+  App ID to update
+</ParamField>
+
+<ParamField body="name" type="string">
+  Application name (2-64 characters)
+</ParamField>
+
+<ParamField body="description" type="string">
+  Application description (max 200 characters)
+</ParamField>
+
+<ParamField body="websiteUrl" type="string">
+  Application website URL
+</ParamField>
+
+<ParamField body="iconUrl" type="string">
+  Application icon URL
+</ParamField>
+
+<ParamField body="redirectUris" type="string[]">
+  OAuth redirect URIs (at least one required if provided)
+</ParamField>
+
+<ParamField body="supportsE2ee" type="boolean">
+  Whether app supports end-to-end encryption
+</ParamField>
+
+<ParamField body="allowedScopes" type="string[]">
+  Allowed OAuth scopes
+</ParamField>
+
+<ParamField body="accessTokenTtlSeconds" type="number">
+  Access token lifetime in seconds (300-86400)
+</ParamField>
+
+<ParamField body="refreshTokenTtlSeconds" type="number">
+  Refresh token lifetime in seconds (3600-31536000)
+</ParamField>
+
+<ParamField body="allowUserIdScope" type="boolean">
+  Whether `user_id` scope is allowed
+</ParamField>
+
+<ResponseField name="app" type="object" required>
+  The updated OAuth application
+</ResponseField>
+
+---
+
+## Delete App
+
+<RequestExample>
+```bash cURL
+curl -X DELETE https://ave.day/api/apps/{appId} \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200
+{
+  "success": true
+}
+```
+
+```json 404
+{
+  "error": "App not found"
+}
+```
+</ResponseExample>
+
+Deletes an OAuth application. This also deletes all associated resources and active sessions.
+
+<ParamField path="appId" type="string" required>
+  App ID to delete
+</ParamField>
+
+<ResponseField name="success" type="boolean" required>
+  Returns `true` on successful deletion
+</ResponseField>
+
+---
+
+## Rotate Client Secret
+
+<RequestExample>
+```bash cURL
+curl -X POST https://ave.day/api/apps/{appId}/rotate-secret \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200
+{
+  "clientSecret": "secret_new789..."
+}
+```
+
+```json 404
+{
+  "error": "App not found"
+}
+```
+</ResponseExample>
+
+Generates a new client secret for the app. The old secret is immediately invalidated.
+
+<ParamField path="appId" type="string" required>
+  App ID to rotate secret for
+</ParamField>
+
+<ResponseField name="clientSecret" type="string" required>
+  New client secret. **Save this immediately** - it cannot be retrieved later.
+</ResponseField>
+
+---
+
+## List Resources
+
+<RequestExample>
+```bash cURL
+curl https://ave.day/api/apps/{appId}/resources \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200
+{
+  "resources": [
+    {
+      "id": "res_123",
+      "resourceKey": "api:read",
+      "displayName": "API Access",
+      "description": "Read access to API",
+      "scopes": ["read", "write"],
+      "audience": "https://api.example.com",
+      "status": "active",
+      "ownerAppId": "app_123",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+```json 404
+{
+  "error": "App not found"
+}
+```
+</ResponseExample>
+
+Returns all API resources for an OAuth application.
+
+<ParamField path="appId" type="string" required>
+  App ID to list resources for
+</ParamField>
+
+<ResponseField name="resources" type="array" required>
+  Array of API resource objects
+</ResponseField>
+
+---
+
+## Create Resource
+
+<RequestExample>
+```bash cURL
+curl -X POST https://ave.day/api/apps/{appId}/resources \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceKey": "api:read",
+    "displayName": "API Access",
+    "description": "Read access to API",
+    "scopes": ["read", "write"],
+    "audience": "https://api.example.com"
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200
+{
+  "resource": {
+    "id": "res_123",
+    "resourceKey": "api:read",
+    "displayName": "API Access",
+    "description": "Read access to API",
+    "scopes": ["read", "write"],
+    "audience": "https://api.example.com",
+    "status": "active",
+    "ownerAppId": "app_123",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+```json 404
+{
+  "error": "App not found"
+}
+```
+
+```json 409
+{
+  "error": "Resource key already exists"
+}
+```
+</ResponseExample>
+
+Creates an API resource for an OAuth application. Resources define scopes and audiences for access tokens.
+
+<ParamField path="appId" type="string" required>
+  App ID to create resource for
+</ParamField>
+
+<ParamField body="resourceKey" type="string" required>
+  Unique resource identifier (3-100 chars, lowercase alphanumeric with `:_-`)
+</ParamField>
+
+<ParamField body="displayName" type="string" required>
+  Human-readable name (2-80 characters)
+</ParamField>
+
+<ParamField body="description" type="string">
+  Resource description (max 240 characters)
+</ParamField>
+
+<ParamField body="scopes" type="string[]" required>
+  Array of scope names (at least one required, 2-80 chars each)
+</ParamField>
+
+<ParamField body="audience" type="string" required>
+  JWT audience value for this resource (3-200 characters)
+</ParamField>
+
+<ParamField body="status" type="string" default="active">
+  Resource status: `active` or `disabled`
+</ParamField>
+
+<ResponseField name="resource" type="object" required>
+  The created API resource
+</ResponseField>
+
+---
+
+## Update Resource
+
+<RequestExample>
+```bash cURL
+curl -X PATCH https://ave.day/api/apps/{appId}/resources/{resourceId} \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "displayName": "Updated API Access",
+    "status": "disabled"
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200
+{
+  "resource": {
+    "id": "res_123",
+    "resourceKey": "api:read",
+    "displayName": "Updated API Access",
+    "description": "Read access to API",
+    "scopes": ["read", "write"],
+    "audience": "https://api.example.com",
+    "status": "disabled",
+    "ownerAppId": "app_123",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-02T00:00:00.000Z"
+  }
+}
+```
+
+```json 404
+{
+  "error": "Resource not found"
+}
+```
+
+```json 409
+{
+  "error": "Resource key already exists"
+}
+```
+</ResponseExample>
+
+Updates an API resource. All fields are optional.
+
+<ParamField path="appId" type="string" required>
+  App ID
+</ParamField>
+
+<ParamField path="resourceId" type="string" required>
+  Resource ID to update
+</ParamField>
+
+<ParamField body="resourceKey" type="string">
+  Resource key (must be unique)
+</ParamField>
+
+<ParamField body="displayName" type="string">
+  Display name (2-80 characters)
+</ParamField>
+
+<ParamField body="description" type="string">
+  Resource description (max 240 characters)
+</ParamField>
+
+<ParamField body="scopes" type="string[]">
+  Array of scope names
+</ParamField>
+
+<ParamField body="audience" type="string">
+  JWT audience value
+</ParamField>
+
+<ParamField body="status" type="string">
+  Resource status: `active` or `disabled`
+</ParamField>
+
+<ResponseField name="resource" type="object" required>
+  The updated API resource
+</ResponseField>
+
+---
+
+## Delete Resource
+
+<RequestExample>
+```bash cURL
+curl -X DELETE https://ave.day/api/apps/{appId}/resources/{resourceId} \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200
+{
+  "success": true
+}
+```
+
+```json 404
+{
+  "error": "Resource not found"
+}
+```
+</ResponseExample>
+
+Deletes an API resource.
+
+<ParamField path="appId" type="string" required>
+  App ID
+</ParamField>
+
+<ParamField path="resourceId" type="string" required>
+  Resource ID to delete
+</ParamField>
+
+<ResponseField name="success" type="boolean" required>
+  Returns `true` on successful deletion
+</ResponseField>

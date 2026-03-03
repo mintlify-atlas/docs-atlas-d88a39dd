@@ -1,0 +1,272 @@
+---
+title: Device Management
+description: Manage trusted devices and approve login requests from new devices
+---
+
+Ave tracks the devices you use to access your account. You can view active devices, approve login requests from new devices, and revoke access to devices you no longer use.
+
+## What Are Trusted Devices?
+
+When you sign in to Ave, your device becomes "trusted":
+
+- **Automatic Recognition**: Ave remembers your device using a unique fingerprint stored locally
+- **Session Management**: Each device has its own secure session
+- **Activity Tracking**: See when each device last accessed your account
+- **Remote Access Control**: Approve or deny login attempts from new devices
+
+## Viewing Your Devices
+
+<Steps>
+  <Step title="Open Device Management">
+    Navigate to **Dashboard** → **Devices** from the sidebar.
+  </Step>
+
+  <Step title="Review Device List">
+    You'll see all your active devices with:
+    
+    - **Device icon**: Computer, phone, or tablet
+    - **Device name**: Automatically detected or custom name
+    - **Browser**: Which browser you're using
+    - **Operating System**: Windows, macOS, iOS, Android, etc.
+    - **Last seen**: When this device last accessed your account
+    - **This device badge**: Indicates your current device
+  </Step>
+</Steps>
+
+## Approving Login Requests
+
+When you sign in from a new device, you can request approval from a trusted device instead of using a passkey or trust code.
+
+### From the New Device
+
+<Steps>
+  <Step title="Start Login">
+    Enter your handle on the login page and click **Continue**.
+  </Step>
+
+  <Step title="Request Approval">
+    Click **Confirm on a trusted device**.
+    
+    You'll see:
+    - "Waiting for approval" message
+    - Instructions to open Ave on a trusted device
+    - A 5-minute countdown timer
+  </Step>
+
+  <Step title="Wait for Approval">
+    The new device will wait for someone on a trusted device to approve or deny the request.
+    
+    <Note>
+      Login requests expire after 5 minutes for security. If it expires, you'll need to create a new request.
+    </Note>
+  </Step>
+</Steps>
+
+### From a Trusted Device
+
+<Steps>
+  <Step title="See the Notification">
+    If you're already signed in on a trusted device:
+    
+    - A red badge will appear on **Login Requests** in the sidebar
+    - You may receive a push notification (if enabled)
+  </Step>
+
+  <Step title="Review the Request">
+    Click **Login Requests** to see pending requests.
+    
+    Each request shows:
+    - Device type and name
+    - Browser and operating system
+    - IP address
+    - Time of request (e.g., "Just now", "2 minutes ago")
+  </Step>
+
+  <Step title="Approve or Deny">
+    **To Approve:**
+    - Click the **Approve** button
+    - Your master encryption key will be securely transferred to the new device
+    - The new device will automatically sign in
+    
+    **To Deny:**
+    - Click the **Deny** button
+    - The new device will see "Request denied"
+    - The request will be removed
+  </Step>
+</Steps>
+
+<Warning>
+  Only approve login requests from devices you recognize and trust. Check the device name, browser, and IP address before approving.
+</Warning>
+
+## How Secure Key Transfer Works
+
+When you approve a login request, Ave uses end-to-end encryption:
+
+1. **Ephemeral Keys**: Both devices generate temporary encryption keys
+2. **Shared Secret**: They create a shared secret using ECDH (Elliptic Curve Diffie-Hellman)
+3. **Master Key Encryption**: Your master key is encrypted with the shared secret
+4. **Secure Transfer**: The encrypted key is sent through Ave's servers
+5. **Local Decryption**: The new device decrypts it with its private key
+
+<Note>
+  Ave's servers never see your master encryption key in plaintext. The key exchange happens end-to-end between your devices.
+</Note>
+
+## Renaming a Device
+
+Give your devices custom names for easy identification:
+
+<Steps>
+  <Step title="Select Device">
+    From the Devices page, find the device you want to rename.
+  </Step>
+
+  <Step title="Edit Name">
+    Click the edit icon next to the device name.
+  </Step>
+
+  <Step title="Save New Name">
+    Enter a descriptive name like:
+    - "Home Desktop"
+    - "Personal iPhone"
+    - "Work Laptop"
+    
+    Click **Save**.
+  </Step>
+</Steps>
+
+## Revoking Device Access
+
+Remove devices you no longer use or don't recognize:
+
+<Steps>
+  <Step title="Find the Device">
+    Navigate to **Dashboard** → **Devices**.
+  </Step>
+
+  <Step title="Revoke Access">
+    Click the revoke icon next to the device you want to remove.
+    
+    <Warning>
+      You cannot revoke your current device. Switch to a different device first if you need to remove this one.
+    </Warning>
+  </Step>
+
+  <Step title="Confirm Removal">
+    Confirm that you want to revoke this device's access.
+    
+    This will:
+    - Sign out all sessions on that device
+    - Mark the device as inactive
+    - Require re-authentication if that device tries to access your account again
+  </Step>
+</Steps>
+
+## Device Fingerprinting
+
+Ave identifies devices using a browser fingerprint stored in your browser's local storage:
+
+- **Generated locally**: Never sent to servers until you sign in
+- **Persists across sessions**: Helps Ave recognize returning devices
+- **Privacy-focused**: Only used to identify your own devices, not track you
+- **Deletable**: Clearing browser data removes the fingerprint
+
+If you clear your browser data, Ave will treat it as a new device on your next login.
+
+## Automatic Device Cleanup
+
+Ave automatically removes stale devices:
+
+- Devices not seen for 14+ days are marked as inactive
+- Their sessions are revoked for security
+- You can still see them in your device history
+- They'll be re-added if you sign in from them again
+
+## Login Request Status
+
+### Pending
+
+Waiting for approval from a trusted device:
+- Valid for 5 minutes
+- Can be approved or denied by any trusted device
+
+### Approved
+
+A trusted device approved the request:
+- New device receives encrypted master key
+- Automatically signs in
+- Request is removed from the list
+
+### Denied
+
+A trusted device denied the request:
+- New device sees "Request denied" message
+- Must try another login method
+- Request is removed from the list
+
+### Expired
+
+Request exceeded the 5-minute time limit:
+- New device sees "Request expired" message
+- Must create a new request or try another login method
+
+## Best Practices
+
+### Review Devices Regularly
+
+Check your device list monthly:
+- Remove devices you no longer use
+- Verify all devices are ones you recognize
+- Update device names for clarity
+
+### Be Cautious with Login Approvals
+
+Before approving a login request, verify:
+- ✅ You initiated the login yourself
+- ✅ The device name and type match what you're using
+- ✅ The IP address is from a location you recognize
+- ✅ The timing makes sense
+
+<Warning>
+  If you see a login request you didn't create, deny it immediately. This could indicate someone is trying to access your account.
+</Warning>
+
+### Keep Multiple Trusted Devices
+
+Maintain access on at least 2 devices:
+- Allows you to approve login requests
+- Provides backup access if one device is unavailable
+- Makes account recovery easier
+
+## Troubleshooting
+
+### Login Request Not Appearing
+
+If you don't see a notification on your trusted device:
+- Manually navigate to **Dashboard** → **Login Requests**
+- Check if WebSocket connection is active (browser console)
+- Refresh the page
+- Verify both devices have internet connectivity
+
+### Request Stuck on "Waiting"
+
+If the new device stays on waiting:
+- Check that the request hasn't expired (5-minute limit)
+- Verify your trusted device is online and signed in
+- Try the polling fallback by waiting up to 30 seconds
+- Cancel and try a different login method
+
+### Can't Revoke Current Device
+
+This is a security protection:
+- Sign in on a different device first
+- Then revoke the device from there
+- Or use the "Revoke All Devices" option (keeps current device)
+
+## Related Topics
+
+- [Account Setup](/guides/account-setup)
+- [Passkey Management](/guides/passkey-management)
+- [Security Settings](/guides/security-settings)
+- [Account Recovery](/guides/account-recovery)

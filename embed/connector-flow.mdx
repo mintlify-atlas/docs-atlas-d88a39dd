@@ -1,0 +1,401 @@
+---
+title: "Connector flow"
+description: "Advanced connector authorization and protected runtime execution"
+---
+
+# Connector Flows
+
+The Ave embed library provides advanced connector flows for resource authorization and protected browser execution. These are separate from standard sign-in flows and enable more complex delegation scenarios.
+
+## Connector Authorization
+
+Use `openAveConnectorSheet()` to authorize access to specific resources outside of the main authentication flow.
+
+### Basic Usage
+
+```js
+import { openAveConnectorSheet } from "@ave-id/embed";
+
+openAveConnectorSheet({
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  resource: "target:resource",
+  scope: "resource.access",
+  mode: "user_present", // or "background"
+  onSuccess: ({ redirectUrl }) => {
+    window.location.href = redirectUrl;
+  },
+});
+```
+
+### Configuration Options
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `clientId` | string | Yes | - | Your Ave client ID |
+| `redirectUri` | string | Yes | - | OAuth redirect URI |
+| `resource` | string | Yes | - | Target resource identifier |
+| `scope` | string | Yes | - | Resource-specific scopes |
+| `mode` | string | No | `"user_present"` | Authorization mode: `"user_present"` or `"background"` |
+| `issuer` | string | No | `"https://aveid.net"` | Ave issuer URL |
+| `onSuccess` | function | No | - | Success callback |
+| `onError` | function | No | - | Error callback |
+| `onClose` | function | No | - | Close callback |
+
+### Authorization Modes
+
+#### user_present
+
+Requires the user to actively approve the authorization:
+
+```js
+import { openAveConnectorSheet } from "@ave-id/embed";
+
+openAveConnectorSheet({
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  resource: "calendar:google",
+  scope: "calendar.read calendar.write",
+  mode: "user_present",
+  onSuccess: ({ redirectUrl }) => {
+    window.location.href = redirectUrl;
+  },
+});
+```
+
+#### background
+
+Attempts silent authorization without user interaction:
+
+```js
+import { openAveConnectorSheet } from "@ave-id/embed";
+
+openAveConnectorSheet({
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  resource: "calendar:google",
+  scope: "calendar.read",
+  mode: "background",
+  onSuccess: ({ redirectUrl }) => {
+    window.location.href = redirectUrl;
+  },
+  onError: (error) => {
+    // Background auth failed, fall back to user_present mode
+    console.error("Silent authorization failed:", error);
+  },
+});
+```
+
+<Note>
+Background mode authorization may fail if the user hasn't previously granted consent. Always provide a fallback to `user_present` mode.
+</Note>
+
+### Examples
+
+#### Authorize Third-Party API Access
+
+```js
+import { openAveConnectorSheet } from "@ave-id/embed";
+
+function authorizeGoogleCalendar() {
+  openAveConnectorSheet({
+    clientId: "YOUR_CLIENT_ID",
+    redirectUri: "https://yourapp.com/connector/callback",
+    resource: "calendar:google",
+    scope: "calendar.read calendar.write",
+    mode: "user_present",
+    onSuccess: ({ redirectUrl }) => {
+      // Exchange authorization code for access token
+      window.location.href = redirectUrl;
+    },
+    onError: (error) => {
+      console.error("Calendar authorization failed:", error);
+    },
+    onClose: () => {
+      console.log("User cancelled calendar authorization");
+    },
+  });
+}
+```
+
+#### React Hook for Connector Authorization
+
+```jsx
+import { useState } from "react";
+import { openAveConnectorSheet } from "@ave-id/embed";
+
+function useConnectorAuth() {
+  const [isAuthorizing, setIsAuthorizing] = useState(false);
+
+  const authorizeResource = (resource, scope) => {
+    setIsAuthorizing(true);
+    
+    openAveConnectorSheet({
+      clientId: process.env.REACT_APP_AVE_CLIENT_ID,
+      redirectUri: `${window.location.origin}/connector/callback`,
+      resource,
+      scope,
+      mode: "user_present",
+      onSuccess: ({ redirectUrl }) => {
+        window.location.href = redirectUrl;
+      },
+      onError: (error) => {
+        console.error("Authorization error:", error);
+        setIsAuthorizing(false);
+      },
+      onClose: () => {
+        setIsAuthorizing(false);
+      },
+    });
+  };
+
+  return { authorizeResource, isAuthorizing };
+}
+
+// Usage
+function CalendarConnect() {
+  const { authorizeResource, isAuthorizing } = useConnectorAuth();
+
+  return (
+    <button 
+      onClick={() => authorizeResource("calendar:google", "calendar.read calendar.write")}
+      disabled={isAuthorizing}
+    >
+      {isAuthorizing ? "Authorizing..." : "Connect Google Calendar"}
+    </button>
+  );
+}
+```
+
+## Connector Runtime
+
+Use `openAveConnectorRuntime()` for protected browser execution with delegated tokens.
+
+### Basic Usage
+
+```js
+import { openAveConnectorRuntime } from "@ave-id/embed";
+
+const runtime = openAveConnectorRuntime({
+  delegatedToken: "DELEGATED_TOKEN",
+  target: "iris", // example target app
+  targetOrigin: "https://irischat.app",
+  mode: "user_present",
+  onEvent: (event) => console.log(event),
+});
+
+runtime.send({
+  op: "infer",
+  payload: { prompt: "hello" },
+});
+```
+
+### Configuration Options
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `delegatedToken` | string | Yes | Delegated access token for the runtime |
+| `target` | string | Yes | Target application identifier |
+| `targetOrigin` | string | Yes | Origin URL of the target application |
+| `mode` | string | No | Runtime mode: `"user_present"` or `"background"` |
+| `onEvent` | function | No | Event callback for runtime messages |
+
+### Return Value
+
+The `openAveConnectorRuntime()` function returns an object with:
+
+```js
+{
+  send: (message) => void // Send messages to the runtime
+}
+```
+
+### Sending Messages
+
+Use the `send()` method to communicate with the protected runtime:
+
+```js
+const runtime = openAveConnectorRuntime({
+  delegatedToken: token,
+  target: "iris",
+  targetOrigin: "https://irischat.app",
+  onEvent: (event) => {
+    console.log("Runtime event:", event);
+  },
+});
+
+// Send a message
+runtime.send({
+  op: "infer",
+  payload: { 
+    prompt: "What's the weather today?",
+    model: "gpt-4"
+  },
+});
+```
+
+### Receiving Events
+
+Handle events from the runtime using the `onEvent` callback:
+
+```js
+import { openAveConnectorRuntime } from "@ave-id/embed";
+
+const runtime = openAveConnectorRuntime({
+  delegatedToken: "DELEGATED_TOKEN",
+  target: "iris",
+  targetOrigin: "https://irischat.app",
+  mode: "user_present",
+  onEvent: (event) => {
+    switch (event.type) {
+      case "response":
+        console.log("Got response:", event.data);
+        break;
+      case "error":
+        console.error("Runtime error:", event.error);
+        break;
+      case "complete":
+        console.log("Operation complete");
+        break;
+      default:
+        console.log("Unknown event:", event);
+    }
+  },
+});
+```
+
+### Examples
+
+#### AI Inference Runtime
+
+```js
+import { openAveConnectorRuntime } from "@ave-id/embed";
+
+function createAIRuntime(delegatedToken) {
+  const runtime = openAveConnectorRuntime({
+    delegatedToken,
+    target: "iris",
+    targetOrigin: "https://irischat.app",
+    mode: "user_present",
+    onEvent: (event) => {
+      if (event.type === "response") {
+        displayAIResponse(event.data);
+      } else if (event.type === "error") {
+        handleError(event.error);
+      }
+    },
+  });
+
+  return {
+    ask: (prompt) => {
+      runtime.send({
+        op: "infer",
+        payload: { prompt },
+      });
+    },
+  };
+}
+
+// Usage
+const ai = createAIRuntime(delegatedToken);
+ai.ask("Explain quantum computing");
+```
+
+#### React Hook for Runtime
+
+```jsx
+import { useEffect, useRef, useState } from "react";
+import { openAveConnectorRuntime } from "@ave-id/embed";
+
+function useAveRuntime(delegatedToken, target, targetOrigin) {
+  const runtimeRef = useRef(null);
+  const [events, setEvents] = useState([]);
+
+  useEffect(() => {
+    if (!delegatedToken) return;
+
+    runtimeRef.current = openAveConnectorRuntime({
+      delegatedToken,
+      target,
+      targetOrigin,
+      mode: "user_present",
+      onEvent: (event) => {
+        setEvents(prev => [...prev, event]);
+      },
+    });
+  }, [delegatedToken, target, targetOrigin]);
+
+  const send = (message) => {
+    runtimeRef.current?.send(message);
+  };
+
+  return { send, events };
+}
+
+// Usage
+function AIChat({ delegatedToken }) {
+  const { send, events } = useAveRuntime(
+    delegatedToken,
+    "iris",
+    "https://irischat.app"
+  );
+
+  const handleSend = (prompt) => {
+    send({
+      op: "infer",
+      payload: { prompt },
+    });
+  };
+
+  return (
+    <div>
+      {events.map((event, i) => (
+        <div key={i}>{JSON.stringify(event)}</div>
+      ))}
+      <button onClick={() => handleSend("Hello")}>Send</button>
+    </div>
+  );
+}
+```
+
+## Security Considerations
+
+<Warning>
+**Important security notes:**
+
+- Delegated tokens should be treated as sensitive credentials
+- Always validate `targetOrigin` to prevent message interception
+- Use `user_present` mode for sensitive operations requiring user approval
+- Never expose delegated tokens in client-side code or logs
+- Implement proper token expiration and refresh mechanisms
+- Validate all events received from the runtime before processing
+</Warning>
+
+## Use Cases
+
+Connector flows are ideal for:
+
+- **Third-party API integration** - Authorize access to external services (Google, Slack, etc.)
+- **Resource delegation** - Grant limited access to specific resources
+- **Protected execution** - Run sensitive operations in isolated runtime environments
+- **AI/ML workflows** - Execute AI inference in protected contexts
+- **Multi-step authorization** - Separate authentication from resource authorization
+
+## Best Practices
+
+1. **Use specific scopes** - Request only the minimum required permissions
+2. **Handle errors gracefully** - Provide fallbacks for failed authorizations
+3. **Implement token refresh** - Don't rely on long-lived tokens
+4. **Validate events** - Always validate runtime events before processing
+5. **Monitor runtime state** - Track runtime lifecycle and handle disconnections
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Overview" icon="book" href="/embed/overview">
+    Learn about all embedding options
+  </Card>
+  <Card title="Inline iframe" icon="window" href="/embed/inline-iframe">
+    Standard authentication embedding
+  </Card>
+</CardGroup>

@@ -1,0 +1,294 @@
+---
+title: Client Helpers
+description: Browser-side OAuth helper functions
+---
+
+The `@ave-id/sdk/client` module provides high-level helper functions for implementing OAuth flows in browser applications. These functions handle PKCE generation, state management, and redirects automatically.
+
+## Import Client Helpers
+
+```ts
+import { startPkceLogin, startConnectorFlow } from "@ave-id/sdk/client";
+```
+
+## Quick Start
+
+The simplest way to add Ave login to your app:
+
+```ts
+import { startPkceLogin } from "@ave-id/sdk/client";
+
+// Trigger login flow
+await startPkceLogin({
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+});
+```
+
+This automatically:
+- Generates a PKCE code verifier and challenge
+- Stores the verifier in `sessionStorage`
+- Redirects to Ave for authentication
+
+## API Reference
+
+### startPkceLogin
+
+Initiates an OAuth login flow with PKCE.
+
+```ts
+function startPkceLogin(params: {
+  clientId: string;
+  redirectUri: string;
+  scope?: string;
+  issuer?: string;
+}): Promise<void>
+```
+
+<ParamField path="clientId" type="string" required>
+  Your application's client ID from the Ave dashboard
+</ParamField>
+
+<ParamField path="redirectUri" type="string" required>
+  The URI to redirect to after authentication. Must match a configured redirect URI.
+</ParamField>
+
+<ParamField path="scope" type="string" default="openid profile email">
+  Space-separated OAuth scopes to request
+</ParamField>
+
+<ParamField path="issuer" type="string" default="https://aveid.net">
+  Ave issuer URL (change for development/staging environments)
+</ParamField>
+
+**Behavior:**
+- Generates and stores PKCE verifier in `sessionStorage` under key `ave_code_verifier`
+- Generates and stores nonce in `sessionStorage` under key `ave_nonce`
+- Redirects browser to Ave login page
+
+**Example:**
+
+<Tabs>
+  <Tab title="TypeScript">
+    ```ts
+    import { startPkceLogin } from "@ave-id/sdk/client";
+
+    async function handleLogin() {
+      await startPkceLogin({
+        clientId: "app_abc123",
+        redirectUri: "https://myapp.com/auth/callback",
+        scope: "openid profile email offline_access",
+      });
+    }
+    ```
+  </Tab>
+  
+  <Tab title="JavaScript">
+    ```js
+    import { startPkceLogin } from "@ave-id/sdk/client";
+
+    async function handleLogin() {
+      await startPkceLogin({
+        clientId: "app_abc123",
+        redirectUri: "https://myapp.com/auth/callback",
+        scope: "openid profile email offline_access",
+      });
+    }
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+### startConnectorFlow
+
+Initiates a connector flow to delegate access to a third-party resource.
+
+```ts
+function startConnectorFlow(params: {
+  clientId: string;
+  redirectUri: string;
+  resource: string;
+  scope: string;
+  mode?: "user_present" | "background";
+  issuer?: string;
+}): Promise<void>
+```
+
+<ParamField path="clientId" type="string" required>
+  Your application's client ID
+</ParamField>
+
+<ParamField path="redirectUri" type="string" required>
+  The URI to redirect to after authorization
+</ParamField>
+
+<ParamField path="resource" type="string" required>
+  The resource identifier (e.g., `github.com`, `google.com`)
+</ParamField>
+
+<ParamField path="scope" type="string" required>
+  Space-separated scopes for the target resource (e.g., `repo user` for GitHub)
+</ParamField>
+
+<ParamField path="mode" type="'user_present' | 'background'" default="user_present">
+  Communication mode:
+  - `user_present`: Requires user interaction for each API call
+  - `background`: Allows background access without user interaction
+</ParamField>
+
+<ParamField path="issuer" type="string" default="https://aveid.net">
+  Ave issuer URL
+</ParamField>
+
+**Behavior:**
+- Generates and stores state in `sessionStorage` under key `ave_connector_state`
+- Redirects browser to Ave connector authorization page
+- User grants your app access to their connected resource
+
+**Example:**
+
+```ts
+import { startConnectorFlow } from "@ave-id/sdk/client";
+
+// Request access to user's GitHub account
+await startConnectorFlow({
+  clientId: "app_abc123",
+  redirectUri: "https://myapp.com/connectors/callback",
+  resource: "github.com",
+  scope: "repo user",
+  mode: "user_present",
+});
+```
+
+## Complete Login Example
+
+Here's how to implement a complete login flow with client helpers:
+
+<Steps>
+  <Step title="Login button">
+    Create a login button that triggers the flow:
+
+    ```tsx
+    import { startPkceLogin } from "@ave-id/sdk/client";
+
+    function LoginButton() {
+      const handleLogin = async () => {
+        await startPkceLogin({
+          clientId: process.env.NEXT_PUBLIC_AVE_CLIENT_ID!,
+          redirectUri: `${window.location.origin}/auth/callback`,
+        });
+      };
+
+      return <button onClick={handleLogin}>Login with Ave</button>;
+    }
+    ```
+  </Step>
+
+  <Step title="Callback handler">
+    Handle the OAuth callback and exchange the code:
+
+    ```tsx
+    // pages/auth/callback.tsx
+    import { useEffect, useState } from "react";
+    import { exchangeCode } from "@ave-id/sdk";
+
+    export default function AuthCallback() {
+      const [error, setError] = useState<string | null>(null);
+
+      useEffect(() => {
+        async function handleCallback() {
+          const params = new URLSearchParams(window.location.search);
+          const code = params.get("code");
+          const verifier = sessionStorage.getItem("ave_code_verifier");
+
+          if (!code || !verifier) {
+            setError("Missing code or verifier");
+            return;
+          }
+
+          try {
+            const tokens = await exchangeCode(
+              {
+                clientId: process.env.NEXT_PUBLIC_AVE_CLIENT_ID!,
+                redirectUri: `${window.location.origin}/auth/callback`,
+              },
+              { code, codeVerifier: verifier }
+            );
+
+            // Store tokens securely
+            localStorage.setItem("ave_access_token", tokens.access_token);
+            if (tokens.refresh_token) {
+              localStorage.setItem("ave_refresh_token", tokens.refresh_token);
+            }
+
+            // Clean up session storage
+            sessionStorage.removeItem("ave_code_verifier");
+            sessionStorage.removeItem("ave_nonce");
+
+            // Redirect to app
+            window.location.href = "/dashboard";
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Login failed");
+          }
+        }
+
+        handleCallback();
+      }, []);
+
+      if (error) {
+        return <div>Error: {error}</div>;
+      }
+
+      return <div>Completing login...</div>;
+    }
+    ```
+  </Step>
+</Steps>
+
+## SessionStorage Keys
+
+The client helpers use the following `sessionStorage` keys:
+
+| Key | Used By | Description |
+|-----|---------|-------------|
+| `ave_code_verifier` | `startPkceLogin` | PKCE code verifier for OAuth |
+| `ave_nonce` | `startPkceLogin` | Nonce for ID token validation |
+| `ave_connector_state` | `startConnectorFlow` | State parameter for connector flow |
+
+<Warning>
+  These values are stored in `sessionStorage` and will be lost if the user closes the tab. Make sure to complete the OAuth flow in the same browser session.
+</Warning>
+
+## Error Handling
+
+Both helper functions redirect the browser, so they don't throw errors directly. However, errors can occur in the callback:
+
+```ts
+// In your callback handler
+const params = new URLSearchParams(window.location.search);
+const error = params.get("error");
+const errorDescription = params.get("error_description");
+
+if (error) {
+  console.error(`OAuth error: ${error} - ${errorDescription}`);
+  // Handle error (e.g., show message to user)
+}
+```
+
+Common error codes:
+- `access_denied`: User denied the authorization request
+- `invalid_request`: Missing or invalid parameters
+- `server_error`: Ave server error
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="OAuth Flow" icon="arrow-right-to-bracket" href="/sdk/oauth-flow">
+    Learn about the underlying OAuth functions
+  </Card>
+  
+  <Card title="Server Helpers" icon="server" href="/sdk/server-helpers">
+    Exchange codes on your backend for better security
+  </Card>
+</CardGroup>

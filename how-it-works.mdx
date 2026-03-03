@@ -1,0 +1,521 @@
+---
+title: How it works
+description: Understanding Ave's architecture, end-to-end encryption, and authentication flows
+---
+
+## Architecture overview
+
+Ave is built on three core principles:
+
+1. **Passwordless authentication** - WebAuthn passkeys replace passwords
+2. **End-to-end encryption** - Master keys never leave devices in plaintext
+3. **Standards-based** - OAuth 2.0, OIDC, and WebAuthn protocols
+
+<img
+  src="/images/architecture.svg"
+  alt="Ave Architecture"
+/>
+
+## Components
+
+### Frontend (ave-web)
+
+React + Vite application that handles:
+- User registration and login UI
+- WebAuthn credential creation/authentication
+- Client-side cryptography (master key generation, encryption)
+- OAuth authorization flows
+- Device management dashboard
+
+### Backend (ave-server)
+
+Hono.js API running on Cloudflare Workers:
+- WebAuthn registration/authentication endpoints (`/api/register`, `/api/login`)
+- OAuth 2.0 token endpoints (`/api/oauth/token`, `/api/oauth/authorize`)
+- OIDC discovery (`/.well-known/openid-configuration`)
+- Session management with stateless JWT tokens
+- WebSocket server for real-time notifications
+
+### SDKs
+
+**@ave-id/sdk** - TypeScript SDK with helpers for:
+- Building authorization URLs with PKCE
+- Exchanging codes for tokens
+- Refreshing access tokens
+- Token exchange (delegation)
+- Signing API integration
+
+**@ave-id/embed** - Embeddable authentication UI:
+- Inline iframes
+- Modal sheets
+- Popup windows
+- PostMessage communication
+
+## End-to-end encryption
+
+### Master key generation
+
+When a user creates an account, Ave generates a **256-bit master key** in the browser using `crypto.getRandomValues()`. This key never leaves the device in plaintext.
+
+```typescript
+// Simplified from ave-web/src/lib/crypto.ts
+function generateMasterKey(): Uint8Array {
+  const key = new Uint8Array(32);
+  crypto.getRandomValues(key);
+  return key;
+}
+```
+
+<Warning>
+  The master key is **never sent to the server**. All encryption/decryption happens client-side in the browser.
+</Warning>
+
+### Master key protection
+
+The master key is protected by three independent methods:
+
+<Tabs>
+  <Tab title="Passkeys (PRF)">
+    Ave uses the **PRF (Pseudo-Random Function)** extension of WebAuthn to derive encryption keys from passkey authentication.
+
+    ```typescript
+    // During registration
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        ...options,
+        extensions: {
+          prf: { eval: { first: salt } },
+        },
+      },
+    });
+
+    const prfOutput = credential.getClientExtensionResults().prf.results.first;
+    const encryptionKey = await deriveKey(prfOutput);
+    const encryptedMasterKey = await encrypt(masterKey, encryptionKey);
+    ```
+
+    <Info>
+      PRF provides a unique, deterministic output for each passkey. The encrypted master key is stored in `localStorage`, and decrypted when the user authenticates.
+    </Info>
+  </Tab>
+
+  <Tab title="Security questions">
+    Users select 3 security questions and provide answers. Ave hashes the answers using PBKDF2 and uses them to encrypt the master key.
+
+    ```typescript
+    // Hash each answer
+    const hashedAnswers = await Promise.all(
+      answers.map(answer => 
+        pbkdf2(answer.toLowerCase().trim(), salt, 100000, 32)
+      )
+    );
+
+    // Derive encryption key from hashed answers
+    const combinedKey = hashAnswers.reduce((acc, hash) => xor(acc, hash));
+    const encryptedMasterKey = await encrypt(masterKey, combinedKey);
+    ```
+
+    The server stores:
+    - Hashed answers (for verification)
+    - Encrypted master key
+    - Salt
+
+    <Note>
+      Answers are case-insensitive and trimmed before hashing. Users must provide **exact** answers to recover their master key.
+    </Note>
+  </Tab>
+
+  <Tab title="Trust codes">
+    Ave generates 2 single-use **trust codes** in the format `XXXXX-XXXXX-XXXXX-XXXXX-XXXXX` (25 characters, base32 encoded).
+
+    ```typescript
+    // Generate trust code
+    const bytes = new Uint8Array(20);
+    crypto.getRandomValues(bytes);
+    const code = base32Encode(bytes).match(/.{1,5}/g).join("-");
+
+    // Encrypt master key with trust code
+    const key = await deriveKeyFromCode(code);
+    const encryptedMasterKey = await encrypt(masterKey, key);
+    ```
+
+    The server stores:
+    - Hashed trust code (bcrypt)
+    - Encrypted master key
+    - Usage status
+
+    <Warning>
+      Trust codes are **single-use**. After using a code to recover access, it's marked as used and cannot be used again. Users should regenerate new codes after recovery.
+    </Warning>
+  </Tab>
+</Tabs>
+
+### Data encryption
+
+All user data (profile fields, settings, etc.) is encrypted with the master key before being sent to the server:
+
+```typescript
+const encryptedData = await encryptWithMasterKey(masterKey, {
+  displayName: "Jane Doe",
+  email: "jane@example.com",
+  birthday: "1990-01-01",
+});
+
+// Server only receives encrypted blob
+await fetch("/api/identities", {
+  method: "POST",
+  body: JSON.stringify({ encryptedData }),
+});
+```
+
+<Info>
+  The server has **zero knowledge** of user data. It can only store and retrieve encrypted blobs.
+</Info>
+
+## Authentication flows
+
+### Registration flow
+
+<Steps>
+  <Step title="User enters handle">
+    Frontend checks if handle is available via `/api/register/start`
+  </Step>
+
+  <Step title="WebAuthn registration">
+    Browser prompts for biometric/PIN to create a passkey. A temporary user ID is generated for the WebAuthn credential.
+
+    ```typescript
+    const options = await generateRegistrationOptions({
+      rpName: "Ave",
+      rpID: "aveid.net",
+      userName: handle,
+      userID: tempUserId,
+      authenticatorSelection: {
+        residentKey: "required",
+        userVerification: "required",
+      },
+      extensions: {
+        prf: { eval: { first: salt } },
+      },
+    });
+    ```
+  </Step>
+
+  <Step title="Master key generation">
+    Frontend generates a 256-bit master key and encrypts it with PRF output, security question answers, and trust codes.
+  </Step>
+
+  <Step title="Complete registration">
+    Frontend sends to `/api/register/complete`:
+    - WebAuthn credential (public key, credential ID)
+    - Identity data (encrypted)
+    - Hashed security answers
+    - Encrypted master key backups
+    - Trust codes (hashed)
+    - Device information
+
+    Backend creates:
+    - User account
+    - Identity record
+    - Passkey record
+    - Device record
+    - Session token
+  </Step>
+
+  <Step title="User logged in">
+    Session token is set in an HTTP-only cookie. User is redirected to the dashboard.
+  </Step>
+</Steps>
+
+### Passkey login flow
+
+<Steps>
+  <Step title="User enters handle">
+    Frontend calls `/api/login/start` to get WebAuthn challenge options.
+  </Step>
+
+  <Step title="WebAuthn authentication">
+    Browser prompts for biometric/PIN. The passkey signs the challenge.
+
+    ```typescript
+    const credential = await navigator.credentials.get({
+      publicKey: {
+        ...options,
+        extensions: {
+          prf: { eval: { first: salt } },
+        },
+      },
+    });
+    ```
+  </Step>
+
+  <Step title="Decrypt master key">
+    Frontend uses PRF output to decrypt the master key from `localStorage`.
+  </Step>
+
+  <Step title="Complete login">
+    Frontend sends signed challenge to `/api/login/complete`. Backend:
+    - Verifies WebAuthn signature
+    - Creates session token
+    - Updates device last seen timestamp
+  </Step>
+</Steps>
+
+### Multi-device login flow
+
+When a user wants to log in on a new device without a passkey:
+
+<Steps>
+  <Step title="Request approval">
+    New device generates an **ephemeral ECDH key pair** (P-256 curve) and sends public key to `/api/login/request-approval`.
+
+    ```typescript
+    const keyPair = await crypto.subtle.generateKey(
+      { name: "ECDH", namedCurve: "P-256" },
+      true,
+      ["deriveKey"]
+    );
+
+    const publicKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    ```
+
+    Backend stores the login request with the requester's public key.
+  </Step>
+
+  <Step title="Notify trusted device">
+    Backend sends WebSocket notification to all active devices for this user. Trusted device sees the login request in real-time.
+  </Step>
+
+  <Step title="User approves">
+    Trusted device:
+    - Loads master key from `localStorage`
+    - Generates its own ephemeral ECDH key pair
+    - Derives shared secret using requester's public key
+    - Encrypts master key with shared secret
+    - Sends encrypted master key to `/api/login/approve`
+
+    ```typescript
+    const sharedSecret = await crypto.subtle.deriveKey(
+      { name: "ECDH", public: requesterPublicKey },
+      trustedDevicePrivateKey,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt"]
+    );
+
+    const encryptedMasterKey = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      sharedSecret,
+      masterKey
+    );
+    ```
+  </Step>
+
+  <Step title="New device receives master key">
+    New device:
+    - Receives encrypted master key via WebSocket
+    - Derives same shared secret using trusted device's ephemeral public key
+    - Decrypts master key
+    - Stores in `localStorage`
+    - Logs in automatically
+  </Step>
+</Steps>
+
+<Info>
+  The ephemeral ECDH keys are **never stored** - they're generated on-demand and discarded after use. The backend never sees the shared secret or plaintext master key.
+</Info>
+
+## OAuth 2.0 integration
+
+### Authorization flow
+
+<Steps>
+  <Step title="App redirects to Ave">
+    ```typescript
+    const url = buildAuthorizeUrl({
+      clientId: "app_123",
+      redirectUri: "https://yourapp.com/callback",
+    }, {
+      scope: ["openid", "profile", "email"],
+      codeChallenge: challenge,
+      codeChallengeMethod: "S256",
+    });
+    // Redirects to: https://aveid.net/signin?client_id=...
+    ```
+  </Step>
+
+  <Step title="User authenticates">
+    User logs in with passkey and selects which identity to share with the app.
+  </Step>
+
+  <Step title="User authorizes app">
+    Ave shows app information (name, description, website) and requested permissions. User swipes to approve.
+  </Step>
+
+  <Step title="Redirect with code">
+    Ave redirects back to app with authorization code:
+    ```
+    https://yourapp.com/callback?code=abc123&state=xyz
+    ```
+  </Step>
+
+  <Step title="Exchange code for tokens">
+    App backend exchanges code for tokens:
+
+    ```typescript
+    const tokens = await exchangeCodeServer(
+      {
+        clientId: "app_123",
+        clientSecret: process.env.AVE_SECRET,
+        redirectUri: "https://yourapp.com/callback",
+      },
+      { code: "abc123" }
+    );
+    ```
+
+    Backend verifies PKCE code_verifier (if used) and returns:
+    - `access_token` - JWT with user/identity info
+    - `id_token` - OIDC identity token
+    - `refresh_token` - Long-lived token (if `offline_access` requested)
+  </Step>
+</Steps>
+
+### Token structure
+
+Access tokens are **Ed25519-signed JWTs** with the following claims:
+
+```json
+{
+  "sub": "user_abc123",
+  "iss": "https://api.aveid.net",
+  "aud": "app_xyz789",
+  "iat": 1234567890,
+  "exp": 1234571490,
+  "scope": "openid profile email",
+  "identity_id": "identity_def456",
+  "handle": "janedoe",
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "avatar_url": "https://cdn.aveid.net/avatars/..."
+}
+```
+
+Verify tokens using the public key from `/.well-known/jwks.json`:
+
+```typescript
+import * as jose from "jose";
+
+const jwks = await jose.createRemoteJWKSet(
+  new URL("https://api.aveid.net/.well-known/jwks.json")
+);
+
+const { payload } = await jose.jwtVerify(accessToken, jwks, {
+  issuer: "https://api.aveid.net",
+  audience: "your_client_id",
+});
+```
+
+## Security features
+
+### Session management
+
+Sessions are **stateless JWT tokens** signed with Ed25519. They contain:
+- User ID
+- Device ID
+- Issued at / Expires at timestamps
+- Session fingerprint (hashed)
+
+Sessions are stored in HTTP-only, secure, SameSite=Lax cookies.
+
+<Note>
+  Session tokens are **short-lived** (default: 7 days) and automatically refreshed on activity.
+</Note>
+
+### Device tracking
+
+Each device has a **unique fingerprint** stored in `localStorage`:
+
+```typescript
+const fingerprint = `${navigator.userAgent}_${screen.width}x${screen.height}_${timezone}`;
+```
+
+Devices are tracked with:
+- Device type (phone, computer, tablet)
+- Browser and OS information
+- Last seen timestamp
+- IP address (logged in activity)
+
+### Activity logging
+
+All security-relevant actions are logged:
+- Account creation
+- Login/logout events
+- Passkey added/removed
+- Trust codes regenerated
+- Device revoked
+- OAuth authorizations
+
+Logs include:
+- Timestamp
+- Action type
+- Device ID
+- IP address
+- User agent
+- Severity (info, warning, danger)
+
+### Rate limiting
+
+Ave implements rate limiting on sensitive endpoints:
+- Login attempts: 5 per minute per IP
+- Registration: 3 per hour per IP
+- Trust code recovery: 3 per hour per account
+- Security question attempts: 5 per hour per account
+
+<Warning>
+  Rate limits are enforced at the Cloudflare Workers level using Durable Objects for distributed state.
+</Warning>
+
+## OIDC discovery
+
+Ave exposes standard OIDC discovery endpoints:
+
+```bash
+curl https://api.aveid.net/.well-known/openid-configuration
+```
+
+```json
+{
+  "issuer": "https://api.aveid.net",
+  "authorization_endpoint": "https://api.aveid.net/api/oauth/authorize",
+  "token_endpoint": "https://api.aveid.net/api/oauth/token",
+  "userinfo_endpoint": "https://api.aveid.net/api/oauth/userinfo",
+  "jwks_uri": "https://api.aveid.net/.well-known/jwks.json",
+  "scopes_supported": ["openid", "profile", "email", "offline_access"],
+  "response_types_supported": ["code"],
+  "grant_types_supported": [
+    "authorization_code",
+    "refresh_token",
+    "urn:ietf:params:oauth:grant-type:token-exchange"
+  ],
+  "subject_types_supported": ["public"],
+  "id_token_signing_alg_values_supported": ["EdDSA"],
+  "token_endpoint_auth_methods_supported": ["client_secret_post", "none"]
+}
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Signing API" icon="signature" href="/signing">
+    Request cryptographic signatures from users
+  </Card>
+  <Card title="Delegation" icon="arrows-rotate" href="/delegation">
+    Implement token exchange and connector apps
+  </Card>
+  <Card title="Self-hosting" icon="server" href="/self-hosting">
+    Deploy your own Ave instance
+  </Card>
+  <Card title="Testing guide" icon="flask" href="/testing">
+    Complete testing walkthrough with all flows
+  </Card>
+</CardGroup>

@@ -1,0 +1,308 @@
+---
+title: 'Identities API'
+description: 'Manage user identities with CRUD operations and primary identity selection'
+---
+
+## Authentication
+
+All identity endpoints require authentication via the `requireAuth` middleware. Include a valid session token in your request.
+
+## Get All Identities
+
+<api method="GET" endpoint="/api/identities" />
+
+Retrieve all identities associated with the authenticated user.
+
+### Response
+
+<ResponseField name="identities" type="array">
+  Array of identity objects
+  
+  <ResponseField name="id" type="string">
+    Unique identifier for the identity
+  </ResponseField>
+  
+  <ResponseField name="displayName" type="string">
+    The display name of the identity (1-64 characters)
+  </ResponseField>
+  
+  <ResponseField name="handle" type="string">
+    Unique handle for the identity (3-32 characters, alphanumeric and underscore only)
+  </ResponseField>
+  
+  <ResponseField name="email" type="string | null">
+    Optional email address associated with the identity
+  </ResponseField>
+  
+  <ResponseField name="birthday" type="string | null">
+    Optional birthday in string format
+  </ResponseField>
+  
+  <ResponseField name="avatarUrl" type="string | null">
+    Optional URL for the identity's avatar image
+  </ResponseField>
+  
+  <ResponseField name="bannerUrl" type="string | null">
+    Optional URL or hex color (e.g., #FF6B6B) for the identity's banner
+  </ResponseField>
+  
+  <ResponseField name="isPrimary" type="boolean">
+    Whether this is the user's primary identity
+  </ResponseField>
+  
+  <ResponseField name="createdAt" type="string">
+    Timestamp of when the identity was created
+  </ResponseField>
+</ResponseField>
+
+---
+
+## Get Single Identity
+
+<api method="GET" endpoint="/api/identities/:identityId" />
+
+Retrieve a specific identity by ID. The identity must belong to the authenticated user.
+
+### Path Parameters
+
+<ParamField path="identityId" type="string" required>
+  The unique identifier of the identity to retrieve
+</ParamField>
+
+### Response
+
+<ResponseField name="identity" type="object">
+  Identity object with the following fields:
+  
+  <ResponseField name="id" type="string">
+    Unique identifier for the identity
+  </ResponseField>
+  
+  <ResponseField name="displayName" type="string">
+    The display name of the identity
+  </ResponseField>
+  
+  <ResponseField name="handle" type="string">
+    Unique handle for the identity
+  </ResponseField>
+  
+  <ResponseField name="email" type="string | null">
+    Email address associated with the identity
+  </ResponseField>
+  
+  <ResponseField name="birthday" type="string | null">
+    Birthday in string format
+  </ResponseField>
+  
+  <ResponseField name="avatarUrl" type="string | null">
+    URL for the identity's avatar image
+  </ResponseField>
+  
+  <ResponseField name="bannerUrl" type="string | null">
+    URL or hex color for the identity's banner
+  </ResponseField>
+  
+  <ResponseField name="isPrimary" type="boolean">
+    Whether this is the user's primary identity
+  </ResponseField>
+  
+  <ResponseField name="createdAt" type="string">
+    Timestamp of when the identity was created
+  </ResponseField>
+</ResponseField>
+
+### Error Responses
+
+- `404` - Identity not found or does not belong to the authenticated user
+
+---
+
+## Create Identity
+
+<api method="POST" endpoint="/api/identities" />
+
+Create a new identity for the authenticated user. Users can have a maximum of 5 identities.
+
+### Request Body
+
+<ParamField body="displayName" type="string" required>
+  Display name for the identity (1-64 characters)
+</ParamField>
+
+<ParamField body="handle" type="string" required>
+  Unique handle for the identity (3-32 characters, alphanumeric and underscore only). Will be converted to lowercase.
+</ParamField>
+
+<ParamField body="email" type="string">
+  Optional email address (must be valid email format)
+</ParamField>
+
+<ParamField body="birthday" type="string">
+  Optional birthday in string format
+</ParamField>
+
+<ParamField body="avatarUrl" type="string">
+  Optional URL for the identity's avatar image (must be valid URL)
+</ParamField>
+
+<ParamField body="bannerUrl" type="string">
+  Optional URL or hex color (e.g., #FF6B6B) for the identity's banner
+</ParamField>
+
+### Response
+
+<ResponseField name="identity" type="object">
+  The created identity object
+  
+  <ResponseField name="id" type="string">
+    Unique identifier for the created identity
+  </ResponseField>
+  
+  <ResponseField name="displayName" type="string">
+    The display name of the identity
+  </ResponseField>
+  
+  <ResponseField name="handle" type="string">
+    Unique handle (lowercase)
+  </ResponseField>
+  
+  <ResponseField name="email" type="string | null">
+    Email address
+  </ResponseField>
+  
+  <ResponseField name="birthday" type="string | null">
+    Birthday
+  </ResponseField>
+  
+  <ResponseField name="avatarUrl" type="string | null">
+    Avatar URL
+  </ResponseField>
+  
+  <ResponseField name="bannerUrl" type="string | null">
+    Banner URL or hex color
+  </ResponseField>
+  
+  <ResponseField name="isPrimary" type="boolean">
+    Whether this is the primary identity (true if it's the user's first identity)
+  </ResponseField>
+</ResponseField>
+
+### Error Responses
+
+- `400` - Maximum of 5 identities allowed
+- `400` - Handle is already taken
+- `400` - Validation error (invalid format)
+
+### Activity Log
+
+Creating an identity logs an `identity_created` action with severity `info`.
+
+---
+
+## Update Identity
+
+<api method="PATCH" endpoint="/api/identities/:identityId" />
+
+Update an existing identity. All fields are optional.
+
+### Path Parameters
+
+<ParamField path="identityId" type="string" required>
+  The unique identifier of the identity to update
+</ParamField>
+
+### Request Body
+
+<ParamField body="displayName" type="string">
+  Display name for the identity (1-64 characters)
+</ParamField>
+
+<ParamField body="handle" type="string">
+  Unique handle for the identity (3-32 characters, alphanumeric and underscore only)
+</ParamField>
+
+<ParamField body="email" type="string | null">
+  Email address (set to null to remove)
+</ParamField>
+
+<ParamField body="birthday" type="string | null">
+  Birthday (set to null to remove)
+</ParamField>
+
+<ParamField body="avatarUrl" type="string | null">
+  Avatar URL (set to null to remove)
+</ParamField>
+
+<ParamField body="bannerUrl" type="string | null">
+  Banner URL or hex color (set to null to remove)
+</ParamField>
+
+### Response
+
+<ResponseField name="identity" type="object">
+  The updated identity object with all current fields
+</ResponseField>
+
+### Error Responses
+
+- `404` - Identity not found or does not belong to the authenticated user
+- `400` - Handle is already taken (when changing handle to one that exists)
+- `400` - Validation error
+
+### Activity Log
+
+Updating an identity logs an `identity_updated` action with severity `info`.
+
+---
+
+## Set Primary Identity
+
+<api method="POST" endpoint="/api/identities/:identityId/set-primary" />
+
+Set a specific identity as the user's primary identity. This removes the primary status from all other identities.
+
+### Path Parameters
+
+<ParamField path="identityId" type="string" required>
+  The unique identifier of the identity to set as primary
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Returns true if the operation was successful
+</ResponseField>
+
+### Error Responses
+
+- `404` - Identity not found or does not belong to the authenticated user
+
+---
+
+## Delete Identity
+
+<api method="DELETE" endpoint="/api/identities/:identityId" />
+
+Delete an identity. Cannot delete the primary identity or the user's only identity.
+
+### Path Parameters
+
+<ParamField path="identityId" type="string" required>
+  The unique identifier of the identity to delete
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Returns true if the deletion was successful
+</ResponseField>
+
+### Error Responses
+
+- `404` - Identity not found or does not belong to the authenticated user
+- `400` - Cannot delete primary identity (set another identity as primary first)
+- `400` - Cannot delete your only identity
+
+### Activity Log
+
+Deleting an identity logs an `identity_deleted` action with severity `warning`.

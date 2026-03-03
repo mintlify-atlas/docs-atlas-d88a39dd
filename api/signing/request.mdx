@@ -1,0 +1,93 @@
+---
+title: "Create Signature Request"
+api: "POST /api/signing/request"
+description: "Create a signature request for a user identity. The user will be prompted to sign the payload with their private key."
+---
+
+## Authentication
+
+This endpoint requires OAuth app credentials (client ID and client secret). The credentials are passed in the request body.
+
+## Request Body
+
+<ParamField body="clientId" type="string" required>
+  Your OAuth app's client ID
+</ParamField>
+
+<ParamField body="clientSecret" type="string" required>
+  Your OAuth app's client secret
+</ParamField>
+
+<ParamField body="identityId" type="string" required>
+  The UUID of the identity that should sign the payload
+</ParamField>
+
+<ParamField body="payload" type="string" required>
+  The message/data to be signed. Maximum 10,000 characters.
+</ParamField>
+
+<ParamField body="metadata" type="object">
+  Optional metadata to attach to the signature request for your own reference
+</ParamField>
+
+<ParamField body="expiresInSeconds" type="number" default="300">
+  How long the request is valid for, in seconds. Minimum: 60, Maximum: 3600 (1 hour), Default: 300 (5 minutes)
+</ParamField>
+
+## Response
+
+<ResponseField name="requestId" type="string">
+  Unique identifier for this signature request. Use this to poll for status.
+</ResponseField>
+
+<ResponseField name="expiresAt" type="string">
+  ISO 8601 timestamp when this request expires
+</ResponseField>
+
+<ResponseField name="publicKey" type="string">
+  The public key for the identity that will be used to verify the signature
+</ResponseField>
+
+## Code Example
+
+```typescript
+import { createSignatureRequest } from "ave-sdk";
+
+const config = {
+  clientId: "your_client_id",
+  clientSecret: "your_client_secret",
+  issuer: "https://aveid.net", // optional
+};
+
+// Create a signature request
+const request = await createSignatureRequest(config, {
+  identityId: "user-identity-uuid",
+  payload: "Sign this message to authenticate",
+  metadata: { action: "login", timestamp: Date.now() },
+  expiresInSeconds: 300, // 5 minutes
+});
+
+console.log("Request ID:", request.requestId);
+console.log("Public Key:", request.publicKey);
+console.log("Expires at:", request.expiresAt);
+```
+
+## Workflow
+
+1. Call this endpoint to create a signature request
+2. Redirect the user to Ave to sign: `https://aveid.net/sign?requestId={requestId}`
+3. Poll the [status endpoint](/api/signing/status) to check if the user has signed
+4. Once signed, verify the signature using the [verify endpoint](/api/signing/verify)
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+### Common Errors
+
+- `401 Unauthorized` - Invalid client_id or client_secret
+- `404 Not Found` - Identity not found
+- `400 Bad Request` - Identity does not have a signing key
+- `400 Bad Request` - Payload exceeds maximum length (10KB)

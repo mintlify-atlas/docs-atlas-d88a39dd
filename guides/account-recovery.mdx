@@ -1,0 +1,397 @@
+---
+title: Account Recovery
+description: Recover access to your Ave account when locked out
+---
+
+If you lose access to your passkeys or devices, Ave provides multiple recovery methods to regain access to your account.
+
+## Recovery Methods Overview
+
+Ave offers three primary ways to recover your account:
+
+1. **Trust Codes**: Use a saved recovery code
+2. **Device Approval**: Get approval from a trusted device
+3. **Passkey Recovery**: Use a synced or backup passkey
+
+<Note>
+  Choose your recovery method based on what you still have access to. You only need one method to regain access.
+</Note>
+
+## Method 1: Trust Code Recovery
+
+Use this method if you have one of your trust codes.
+
+<Steps>
+  <Step title="Start Login">
+    Navigate to the Ave login page and enter your handle.
+    
+    Click **Continue**.
+  </Step>
+
+  <Step title="Select Trust Code">
+    Click **Use a trust code** from the login options.
+  </Step>
+
+  <Step title="Enter Trust Code">
+    Type your trust code in the format:
+    
+    ```
+    XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
+    ```
+    
+    Include all dashes and ensure there are no extra spaces.
+    
+    Click **Continue**.
+  </Step>
+
+  <Step title="Verify and Sign In">
+    If the code is valid:
+    
+    - Your encrypted master key is retrieved from Ave's servers
+    - The trust code decrypts it locally in your browser
+    - You're automatically signed in with full access to your data
+    
+    <Note>
+      Trust codes are reusable. Using a trust code doesn't consume it - you can use the same code again if needed.
+    </Note>
+  </Step>
+
+  <Step title="Set Up New Passkey">
+    After signing in with a trust code, immediately set up a new passkey:
+    
+    1. Go to **Dashboard** → **Security**
+    2. Click **Add a new passkey**
+    3. Follow the prompts to create a passkey on your current device
+    
+    This prevents future lockouts.
+  </Step>
+</Steps>
+
+### When to Use Trust Codes
+
+✅ Use trust codes when:
+- You lost access to all your passkeys
+- Your device with your passkey is stolen or broken
+- You're on a completely new device
+- You can't access any trusted devices for approval
+
+### Trust Code Best Practices
+
+- Store codes in a password manager
+- Keep a physical copy in a secure location
+- Don't share codes with anyone
+- Regenerate codes if you suspect compromise
+
+## Method 2: Device Approval Recovery
+
+Use this method if you have access to a device that's already signed in.
+
+<Steps>
+  <Step title="Start Login on New Device">
+    On the device you're locked out of, enter your handle and click **Continue**.
+  </Step>
+
+  <Step title="Request Device Approval">
+    Click **Confirm on a trusted device**.
+    
+    You'll see:
+    - "Waiting for approval" message
+    - Device information that will be sent to your trusted device
+    - 5-minute countdown timer
+  </Step>
+
+  <Step title="Approve on Trusted Device">
+    On a device where you're still signed in:
+    
+    1. You'll see a notification badge on **Login Requests**
+    2. Navigate to **Dashboard** → **Login Requests**
+    3. Review the request details:
+       - Device name and type
+       - Browser and operating system
+       - IP address
+       - Time of request
+    4. Click **Approve** if you recognize the device
+    
+    <Warning>
+      Only approve requests from devices you're currently using. Verify the device details before approving.
+    </Warning>
+  </Step>
+
+  <Step title="Automatic Sign In">
+    After approval:
+    
+    - Your master encryption key is securely transferred to the new device
+    - The new device automatically signs in
+    - You now have full access to your account
+  </Step>
+</Steps>
+
+### When Device Approval Works
+
+✅ Use device approval when:
+- You're signed in on at least one other device
+- You're trying to access from a new device or browser
+- You want the most seamless recovery experience
+- You don't want to use a trust code
+
+❌ Device approval won't work if:
+- You're not signed in on any other device
+- All your devices were lost or stolen
+- The login request expires (5-minute limit)
+
+## Method 3: Passkey Recovery
+
+Use this method if you have a synced or backup passkey.
+
+<Steps>
+  <Step title="Start Login">
+    Enter your handle and click **Continue**.
+  </Step>
+
+  <Step title="Use Passkey">
+    Click **Continue with passkey**.
+    
+    Your browser will prompt you to select a passkey:
+    
+    - Check for passkeys synced via iCloud Keychain (Apple devices)
+    - Check for passkeys in Google Password Manager (Android/Chrome)
+    - Check for passkeys in Microsoft Account (Windows)
+  </Step>
+
+  <Step title="Authenticate">
+    Select your Ave passkey and authenticate with:
+    
+    - Touch ID / Face ID (Apple)
+    - Fingerprint / Face unlock (Android)
+    - Windows Hello (Windows)
+    - Device PIN (fallback)
+  </Step>
+
+  <Step title="Recover Master Key">
+    If your master encryption key isn't stored on this device:
+    
+    1. Ave will prompt you to recover your master key
+    2. Enter a trust code to decrypt your master key
+    3. Your key is restored locally
+    4. You now have full access to your encrypted data
+  </Step>
+</Steps>
+
+### Synced Passkeys
+
+Passkeys may be synced across your devices:
+
+- **Apple**: iCloud Keychain syncs passkeys across iPhone, iPad, and Mac
+- **Google**: Google Password Manager syncs passkeys across Android and Chrome
+- **Microsoft**: Microsoft Account syncs passkeys across Windows devices
+
+<Note>
+  Whether passkeys sync depends on your operating system and account settings, not Ave.
+</Note>
+
+## Complete Lockout Scenarios
+
+What to do in specific lockout situations:
+
+### Lost Phone with Only Passkey
+
+1. Check if your passkey is synced to other Apple/Google devices
+2. If synced: Sign in on another device in your ecosystem
+3. If not synced: Use a trust code on a new device
+4. After recovery: Set up a new passkey immediately
+
+### Computer Crashed or Wiped
+
+1. Try signing in from another device
+2. Use device approval if you're signed in on your phone
+3. Or use a trust code if you don't have other devices
+4. After recovery: Set up passkeys on multiple devices
+
+### Lost All Devices and Trust Codes
+
+<Warning>
+  If you lost access to all passkeys, all devices, and all trust codes, account recovery may not be possible due to end-to-end encryption.
+</Warning>
+
+Last resort options:
+
+1. Check password managers for saved trust codes
+2. Look for physical copies of trust codes
+3. Check encrypted notes or secure storage
+4. Contact Ave support for account verification options
+
+### Stolen or Compromised Device
+
+<Steps>
+  <Step title="Sign In From Safe Device">
+    Use another device or trust code to sign in.
+  </Step>
+
+  <Step title="Revoke Compromised Device">
+    Immediately:
+    
+    1. Go to **Dashboard** → **Devices**
+    2. Find the compromised device
+    3. Click **Revoke** to sign it out
+    4. All sessions on that device are terminated
+  </Step>
+
+  <Step title="Remove Passkey">
+    If the compromised device had a passkey:
+    
+    1. Go to **Dashboard** → **Security**
+    2. Find the passkey for that device
+    3. Click **Delete** to remove it
+  </Step>
+
+  <Step title="Regenerate Trust Codes">
+    If you stored trust codes on the compromised device:
+    
+    1. Go to **Dashboard** → **Security**
+    2. Click **Regenerate trust codes**
+    3. Save the new codes securely
+    4. Old codes are now invalid
+  </Step>
+
+  <Step title="Review Activity">
+    Check your activity log for suspicious access:
+    
+    1. Go to **Dashboard** → **Activity Log**
+    2. Look for unfamiliar logins or actions
+    3. Verify all recent activity was authorized
+  </Step>
+</Steps>
+
+## After Recovery: Prevention
+
+Once you regain access, prevent future lockouts:
+
+### Set Up Multiple Passkeys
+
+<Steps>
+  <Step title="Add Passkeys on All Devices">
+    Create passkeys on:
+    - Primary computer
+    - Smartphone
+    - Tablet
+    - Work device (if applicable)
+  </Step>
+
+  <Step title="Test Each Passkey">
+    Sign out and sign in with each passkey to verify they work.
+  </Step>
+</Steps>
+
+### Secure Your Trust Codes
+
+<Steps>
+  <Step title="Store in Password Manager">
+    Save trust codes in a secure password manager:
+    - 1Password
+    - Bitwarden
+    - LastPass
+    - Keeper
+  </Step>
+
+  <Step title="Create Physical Backup">
+    Write trust codes on paper and store:
+    - In a safe or lockbox
+    - In a bank safety deposit box
+    - With a trusted family member or attorney
+  </Step>
+
+  <Step title="Test Recovery">
+    Periodically verify:
+    - You can access your password manager
+    - Physical backups are still readable
+    - Trust codes still work (use recover-key endpoint)
+  </Step>
+</Steps>
+
+### Maintain Trusted Devices
+
+- Keep at least 2 devices signed in
+- Regularly update device names for easy identification
+- Remove old devices you no longer use
+
+## Recovery Troubleshooting
+
+### Trust Code Invalid
+
+**Symptoms**: "Invalid trust code" error
+
+**Solutions**:
+- Verify you're entering the code exactly as shown with dashes
+- Check for typos, extra spaces, or wrong characters
+- Try a different trust code if you have multiple
+- Ensure codes weren't regenerated after you received this one
+
+### Device Approval Timeout
+
+**Symptoms**: "Request expired" message after 5 minutes
+
+**Solutions**:
+- Create a new login request
+- Ensure your trusted device is online and signed in
+- Check that you're checking login requests on the trusted device
+- Try a different recovery method if timing is an issue
+
+### Passkey Not Found
+
+**Symptoms**: Browser says "No passkeys available"
+
+**Solutions**:
+- Check if passkey is synced to your current device
+- Try signing in on the original device where passkey was created
+- Verify you're using the correct browser/profile
+- Use trust code recovery instead
+
+### Master Key Can't Be Decrypted
+
+**Symptoms**: Signed in but can't access encrypted data
+
+**Solutions**:
+- Use a trust code to decrypt your master key
+- Sign in on a device that still has the master key stored
+- Approve login from a trusted device to transfer the key
+
+## Understanding Recovery Limitations
+
+Due to end-to-end encryption:
+
+✅ **Ave Can:**
+- Verify your identity with passkeys
+- Provide your encrypted master key backup
+- Authenticate you with valid trust codes
+
+❌ **Ave Cannot:**
+- Decrypt your data without your master key
+- Reset your account if you lose all recovery methods
+- Recover trust codes (only hashes are stored)
+- Access your passkey private keys (stored in device hardware)
+
+<Note>
+  This is by design. End-to-end encryption means only you can decrypt your data. Ave's zero-knowledge architecture protects your privacy but requires you to maintain access to recovery methods.
+</Note>
+
+## Prevention Checklist
+
+Protect yourself from lockouts:
+
+- ☐ Set up passkeys on at least 2 devices
+- ☐ Save trust codes in a password manager
+- ☐ Create physical backup of trust codes
+- ☐ Keep at least one device signed in
+- ☐ Test recovery methods quarterly
+- ☐ Review security settings monthly
+- ☐ Update passkey names for clarity
+- ☐ Remove old or unused devices
+- ☐ Keep ecosystem accounts (Apple ID, Google, Microsoft) secure
+- ☐ Know where all your trust codes are stored
+
+## Related Topics
+
+- [Account Setup](/guides/account-setup)
+- [Passkey Management](/guides/passkey-management)
+- [Device Management](/guides/device-management)
+- [Security Settings](/guides/security-settings)

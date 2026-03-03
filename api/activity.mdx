@@ -1,0 +1,156 @@
+---
+title: 'Activity API'
+description: 'Track and query user activity logs with filtering and pagination'
+---
+
+## Authentication
+
+All activity endpoints require authentication via the `requireAuth` middleware. Include a valid session token in your request.
+
+## Get Activity Logs
+
+<api method="GET" endpoint="/api/activity" />
+
+Retrieve paginated activity logs for the authenticated user with optional filtering.
+
+### Query Parameters
+
+<ParamField query="limit" type="number" default="50">
+  Number of logs to return (1-100). Defaults to 50.
+</ParamField>
+
+<ParamField query="offset" type="number" default="0">
+  Number of logs to skip for pagination. Defaults to 0.
+</ParamField>
+
+<ParamField query="action" type="string">
+  Filter logs by action type (partial match). Examples: "identity_created", "passkey_added", "identity_deleted"
+</ParamField>
+
+<ParamField query="severity" type="string">
+  Filter logs by severity level. Must be one of: "info", "warning", "danger"
+</ParamField>
+
+<ParamField query="startDate" type="string">
+  Filter logs created on or after this datetime (ISO 8601 format)
+</ParamField>
+
+<ParamField query="endDate" type="string">
+  Filter logs created on or before this datetime (ISO 8601 format)
+</ParamField>
+
+### Response
+
+<ResponseField name="logs" type="array">
+  Array of activity log objects, ordered by creation date (newest first)
+  
+  <ResponseField name="id" type="string">
+    Unique identifier for the log entry
+  </ResponseField>
+  
+  <ResponseField name="action" type="string">
+    The action that was performed. Common actions include:
+    - `identity_created` - New identity created
+    - `identity_updated` - Identity modified
+    - `identity_deleted` - Identity removed
+    - `passkey_added` - New passkey registered
+    - `passkey_removed` - Passkey deleted
+    - `trust_codes_regenerated` - Trust codes regenerated
+  </ResponseField>
+  
+  <ResponseField name="details" type="object">
+    Additional context about the action. Structure varies by action type:
+    - For `identity_created`: `{ identityId: string, handle: string }`
+    - For `identity_updated`: `{ identityId: string, changes: string[] }`
+    - For `identity_deleted`: `{ identityId: string, handle: string }`
+    - For `passkey_added`: `{ passkeyId: string, name: string }`
+    - For `passkey_removed`: `{ passkeyId: string, name: string }`
+    - For `trust_codes_regenerated`: `{}`
+  </ResponseField>
+  
+  <ResponseField name="severity" type="string">
+    Severity level of the action:
+    - `info` - Normal operations (create, update)
+    - `warning` - Potentially sensitive operations (delete, regenerate)
+    - `danger` - Critical security events
+  </ResponseField>
+  
+  <ResponseField name="ipAddress" type="string | null">
+    IP address from which the action was performed (from X-Forwarded-For or X-Real-IP headers)
+  </ResponseField>
+  
+  <ResponseField name="createdAt" type="string">
+    Timestamp when the action occurred
+  </ResponseField>
+</ResponseField>
+
+### Example Request
+
+```bash
+GET /api/activity?limit=20&severity=warning&startDate=2026-03-01T00:00:00Z
+```
+
+### Example Response
+
+```json
+{
+  "logs": [
+    {
+      "id": "log_123abc",
+      "action": "identity_deleted",
+      "details": {
+        "identityId": "id_456def",
+        "handle": "myhandle"
+      },
+      "severity": "warning",
+      "ipAddress": "192.168.1.1",
+      "createdAt": "2026-03-02T14:30:00Z"
+    },
+    {
+      "id": "log_789ghi",
+      "action": "passkey_removed",
+      "details": {
+        "passkeyId": "pk_123xyz",
+        "name": "My iPhone"
+      },
+      "severity": "warning",
+      "ipAddress": "192.168.1.1",
+      "createdAt": "2026-03-01T10:15:00Z"
+    }
+  ]
+}
+```
+
+## Activity Log Events
+
+Activity logs are automatically created when users perform the following actions:
+
+| Action | Severity | Triggered By |
+|--------|----------|-------------|
+| `identity_created` | info | POST /api/identities |
+| `identity_updated` | info | PATCH /api/identities/:identityId |
+| `identity_deleted` | warning | DELETE /api/identities/:identityId |
+| `passkey_added` | info | POST /api/security/passkeys/complete |
+| `passkey_removed` | warning | DELETE /api/security/passkeys/:passkeyId |
+| `trust_codes_regenerated` | warning | POST /api/security/trust-codes/regenerate |
+
+## Filtering Examples
+
+### Get all high-severity events
+
+```bash
+GET /api/activity?severity=warning
+```
+
+### Get identity-related actions from the last week
+
+```bash
+GET /api/activity?action=identity&startDate=2026-02-24T00:00:00Z
+```
+
+### Get recent activity with pagination
+
+```bash
+GET /api/activity?limit=25&offset=0  # First page
+GET /api/activity?limit=25&offset=25 # Second page
+```

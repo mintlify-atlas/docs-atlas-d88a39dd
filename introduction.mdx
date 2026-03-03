@@ -1,0 +1,136 @@
+---
+title: Introduction
+description: Passwordless identity platform with end-to-end encryption, WebAuthn passkeys, and OAuth/OIDC provider capabilities
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="Ave Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="Ave Hero Dark"
+/>
+
+## What is Ave?
+
+Ave is a passwordless identity platform that combines WebAuthn passkeys with end-to-end encryption to give users complete control over their data. It functions as both a standalone authentication system and an OAuth 2.0 / OpenID Connect provider.
+
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get users authenticated in minutes with our SDK
+  </Card>
+  <Card
+    title="How it works"
+    icon="book-open"
+    href="/how-it-works"
+  >
+    Understand Ave's architecture and core concepts
+  </Card>
+  <Card
+    title="OAuth integration"
+    icon="key"
+    href="/oauth"
+  >
+    Use Ave as an identity provider for your app
+  </Card>
+  <Card
+    title="Signing API"
+    icon="signature"
+    href="/signing"
+  >
+    Enable cryptographic signing with user identities
+  </Card>
+</CardGroup>
+
+## Core features
+
+### Passwordless authentication
+
+Ave uses WebAuthn passkeys for authentication, eliminating passwords entirely. Users authenticate with biometrics (Face ID, Touch ID, Windows Hello) or device PINs.
+
+```typescript
+import { startPkceLogin } from "@ave-id/sdk/client";
+
+// Redirect user to Ave for authentication
+await startPkceLogin({
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+});
+```
+
+### End-to-end encryption
+
+All user data is encrypted client-side with a master key that never leaves the user's device in plaintext. The server only stores encrypted data and has zero knowledge of user information.
+
+<Info>
+  **Master keys are generated in the browser** and protected by:
+  - **Passkeys** - WebAuthn credentials with PRF extension
+  - **Security questions** - User-chosen questions hash-protect the master key
+  - **Trust codes** - Recoverable backup codes (2 codes, single-use)
+</Info>
+
+### Multi-device support
+
+Users can approve login requests from trusted devices using real-time WebSocket notifications. Master keys are transferred securely between devices using ephemeral ECDH key exchange.
+
+### OAuth 2.0 / OIDC provider
+
+Ave implements OAuth 2.0 and OpenID Connect protocols with support for:
+- Authorization Code Flow with PKCE
+- Refresh tokens
+- Token exchange (RFC 8693)
+- Delegation grants for connector apps
+- Standard OIDC discovery endpoints
+
+### Cryptographic signing
+
+Each user identity has an Ed25519 signing key pair. Apps can request signatures from users through the Ave signing API, enabling use cases like transaction signing, document verification, and attestations.
+
+## Why Ave?
+
+<CardGroup cols={2}>
+  <Card title="No passwords" icon="shield-check">
+    WebAuthn passkeys are phishing-resistant and hardware-backed
+  </Card>
+  <Card title="Zero knowledge" icon="lock">
+    Server never sees unencrypted user data or master keys
+  </Card>
+  <Card title="Multi-device" icon="devices">
+    Seamless login across devices with secure key transfer
+  </Card>
+  <Card title="Standards-based" icon="certificate">
+    OAuth 2.0, OIDC, WebAuthn - fully interoperable
+  </Card>
+</CardGroup>
+
+## Getting started
+
+Choose your integration path:
+
+<Steps>
+  <Step title="Install the SDK">
+    ```bash
+    npm install @ave-id/sdk
+    ```
+  </Step>
+  <Step title="Configure your app">
+    Register your OAuth application and get client credentials from the Ave dashboard
+  </Step>
+  <Step title="Integrate authentication">
+    Use our SDK helpers to redirect users to Ave for sign-in
+  </Step>
+  <Step title="Handle the callback">
+    Exchange the authorization code for tokens and access user information
+  </Step>
+</Steps>
+
+<Card title="Ready to build?" icon="code" href="/quickstart">
+  Follow our quickstart guide to authenticate users in under 5 minutes
+</Card>

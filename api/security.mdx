@@ -1,0 +1,314 @@
+---
+title: 'Security API'
+description: 'Manage passkeys, trust codes, and master key encryption for secure authentication'
+---
+
+## Authentication
+
+All security endpoints require authentication via the `requireAuth` middleware. Include a valid session token in your request.
+
+## Get Security Overview
+
+<api method="GET" endpoint="/api/security" />
+
+Retrieve an overview of the user's security settings, including all passkeys and trust code information.
+
+### Response
+
+<ResponseField name="passkeys" type="array">
+  Array of passkey objects
+  
+  <ResponseField name="id" type="string">
+    Unique identifier for the passkey (base64url encoded credential ID)
+  </ResponseField>
+  
+  <ResponseField name="name" type="string">
+    User-assigned name for the passkey
+  </ResponseField>
+  
+  <ResponseField name="createdAt" type="string">
+    Timestamp of when the passkey was created
+  </ResponseField>
+  
+  <ResponseField name="lastUsedAt" type="string | null">
+    Timestamp of when the passkey was last used for authentication
+  </ResponseField>
+  
+  <ResponseField name="deviceType" type="string">
+    Type of device (e.g., "singleDevice" or "multiDevice")
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="trustCodesRemaining" type="number">
+  Number of unused trust codes available
+</ResponseField>
+
+<ResponseField name="securityQuestionIds" type="array">
+  Empty array (security questions have been removed from Ave)
+</ResponseField>
+
+---
+
+## Passkey Registration
+
+### Start Passkey Registration
+
+<api method="POST" endpoint="/api/security/passkeys/register" />
+
+Generate WebAuthn registration options to begin passkey registration. Returns options that should be passed to the WebAuthn API.
+
+### Response
+
+<ResponseField name="options" type="object">
+  WebAuthn registration options object
+  
+  <ResponseField name="challenge" type="string">
+    Base64url-encoded challenge (valid for 5 minutes)
+  </ResponseField>
+  
+  <ResponseField name="rp" type="object">
+    Relying party information
+  </ResponseField>
+  
+  <ResponseField name="user" type="object">
+    User information for the credential
+  </ResponseField>
+  
+  <ResponseField name="pubKeyCredParams" type="array">
+    Supported public key credential parameters
+  </ResponseField>
+  
+  <ResponseField name="authenticatorSelection" type="object">
+    Authenticator selection criteria (requires resident key and user verification)
+  </ResponseField>
+  
+  <ResponseField name="excludeCredentials" type="array">
+    Array of existing passkey IDs to exclude from registration
+  </ResponseField>
+</ResponseField>
+
+### Complete Passkey Registration
+
+<api method="POST" endpoint="/api/security/passkeys/complete" />
+
+Complete passkey registration by verifying the WebAuthn credential response.
+
+### Request Body
+
+<ParamField body="credential" type="object" required>
+  WebAuthn credential response from navigator.credentials.create()
+</ParamField>
+
+<ParamField body="name" type="string">
+  Optional name for the passkey (max 64 characters). Defaults to "New Passkey" if not provided.
+</ParamField>
+
+<ParamField body="prfEncryptedMasterKey" type="string">
+  Optional PRF-encrypted master key if the passkey supports PRF extension
+</ParamField>
+
+### Response
+
+<ResponseField name="passkey" type="object">
+  The created passkey object
+  
+  <ResponseField name="id" type="string">
+    Unique identifier for the passkey
+  </ResponseField>
+  
+  <ResponseField name="name" type="string">
+    User-assigned name
+  </ResponseField>
+  
+  <ResponseField name="createdAt" type="string">
+    Creation timestamp
+  </ResponseField>
+  
+  <ResponseField name="deviceType" type="string">
+    Device type
+  </ResponseField>
+</ResponseField>
+
+### Error Responses
+
+- `400` - Registration session expired (challenge expired after 5 minutes)
+- `400` - Invalid origin (must be localhost or configured production origin)
+- `400` - Invalid credential format
+- `400` - Passkey verification failed
+
+### Activity Log
+
+Successful passkey registration logs a `passkey_added` action with severity `info`.
+
+---
+
+## Update Passkey
+
+<api method="PATCH" endpoint="/api/security/passkeys/:passkeyId" />
+
+Update a passkey's name or PRF-encrypted master key.
+
+### Path Parameters
+
+<ParamField path="passkeyId" type="string" required>
+  The unique identifier of the passkey to update
+</ParamField>
+
+### Request Body
+
+<ParamField body="name" type="string">
+  New name for the passkey (1-64 characters)
+</ParamField>
+
+<ParamField body="prfEncryptedMasterKey" type="string">
+  New PRF-encrypted master key
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Returns true if the update was successful
+</ResponseField>
+
+### Error Responses
+
+- `404` - Passkey not found or does not belong to the authenticated user
+
+---
+
+## Master Key Unlock
+
+### Start Master Key Unlock
+
+<api method="POST" endpoint="/api/security/master-key/unlock/start" />
+
+Initiate master key unlock process using a PRF-enabled passkey. Only passkeys with a stored PRF-encrypted master key can be used.
+
+### Response
+
+<ResponseField name="unlockSessionId" type="string">
+  Unique session ID for this unlock attempt (valid for 5 minutes)
+</ResponseField>
+
+<ResponseField name="options" type="object">
+  WebAuthn authentication options
+  
+  <ResponseField name="challenge" type="string">
+    Base64url-encoded challenge
+  </ResponseField>
+  
+  <ResponseField name="allowCredentials" type="array">
+    Array of passkey IDs that have PRF-encrypted master keys
+  </ResponseField>
+</ResponseField>
+
+### Error Responses
+
+- `400` - No PRF-enabled passkeys found (error code: "no_prf_passkey")
+
+### Finish Master Key Unlock
+
+<api method="POST" endpoint="/api/security/master-key/unlock/finish" />
+
+Complete master key unlock by verifying the WebAuthn authentication response.
+
+### Request Body
+
+<ParamField body="unlockSessionId" type="string" required>
+  The unlock session ID from the start endpoint
+</ParamField>
+
+<ParamField body="credential" type="object" required>
+  WebAuthn credential response from navigator.credentials.get()
+</ParamField>
+
+### Response
+
+<ResponseField name="prfEncryptedMasterKey" type="string">
+  The PRF-encrypted master key that can be decrypted using the PRF output
+</ResponseField>
+
+### Error Responses
+
+- `400` - Unlock session expired (error code: "unlock_session_expired")
+- `403` - Session does not belong to authenticated user (error code: "forbidden")
+- `400` - Invalid origin (error code: "invalid_origin")
+- `400` - Invalid credential format (error code: "invalid_credential_format")
+- `404` - Passkey not found (error code: "passkey_not_found")
+- `400` - Passkey verification failed (error code: "passkey_verification_failed")
+- `400` - No PRF master key stored on this passkey (error code: "no_prf_master_key")
+
+---
+
+## Delete Passkey
+
+<api method="DELETE" endpoint="/api/security/passkeys/:passkeyId" />
+
+Delete a passkey. Cannot delete the user's only passkey.
+
+### Path Parameters
+
+<ParamField path="passkeyId" type="string" required>
+  The unique identifier of the passkey to delete
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Returns true if the deletion was successful
+</ResponseField>
+
+### Error Responses
+
+- `404` - Passkey not found or does not belong to the authenticated user
+- `400` - Cannot delete your only passkey
+
+### Activity Log
+
+Deleting a passkey logs a `passkey_removed` action with severity `warning`.
+
+---
+
+## Trust Codes
+
+### Regenerate Trust Codes
+
+<api method="POST" endpoint="/api/security/trust-codes/regenerate" />
+
+Regenerate trust codes for account recovery. Deletes all existing trust codes and creates 2 new ones.
+
+<Warning>
+  This action invalidates all previously generated trust codes. Store the new codes securely.
+</Warning>
+
+### Response
+
+<ResponseField name="codes" type="array">
+  Array of 2 newly generated trust codes (plain text). These codes will never be shown again.
+</ResponseField>
+
+### Activity Log
+
+Regenerating trust codes logs a `trust_codes_regenerated` action with severity `warning`.
+
+---
+
+## Security Questions (Deprecated)
+
+### Update Security Questions
+
+<api method="PUT" endpoint="/api/security/questions" />
+
+<Warning>
+  This endpoint is deprecated and will return a 410 Gone error. Security questions have been removed from Ave.
+</Warning>
+
+### Request Body
+
+<ParamField body="questions" type="array" required>
+  Array of 3 question/answer objects
+</ParamField>
+
+### Response
+
+- `410` - Security questions have been removed (error: "security_questions_removed")

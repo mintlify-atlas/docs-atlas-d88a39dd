@@ -1,0 +1,413 @@
+---
+title: OAuth Flow
+description: Implement OAuth login with PKCE
+---
+
+The Ave SDK provides low-level functions for building OAuth authorization URLs and exchanging authorization codes for access tokens.
+
+## Basic OAuth Flow
+
+Here's a complete OAuth flow using PKCE (Proof Key for Code Exchange):
+
+<Steps>
+  <Step title="Generate PKCE credentials">
+    Create a code verifier and challenge for secure OAuth:
+
+    ```ts
+    import { generateCodeVerifier, generateCodeChallenge } from "@ave-id/sdk";
+
+    const verifier = generateCodeVerifier();
+    const challenge = await generateCodeChallenge(verifier);
+
+    // Store verifier in sessionStorage to use later
+    sessionStorage.setItem("ave_code_verifier", verifier);
+    ```
+  </Step>
+
+  <Step title="Build authorization URL">
+    Create the URL to redirect users to Ave for login:
+
+    ```ts
+    import { buildAuthorizeUrl } from "@ave-id/sdk";
+
+    const url = buildAuthorizeUrl(
+      {
+        clientId: "YOUR_CLIENT_ID",
+        redirectUri: "https://yourapp.com/callback",
+      },
+      {
+        codeChallenge: challenge,
+        codeChallengeMethod: "S256",
+        scope: ["openid", "profile", "email"],
+      }
+    );
+
+    // Redirect to Ave
+    window.location.href = url;
+    ```
+  </Step>
+
+  <Step title="Handle the callback">
+    After the user logs in, Ave redirects back to your app with a code:
+
+    ```ts
+    import { exchangeCode } from "@ave-id/sdk";
+
+    // Extract code from URL
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+
+    // Retrieve stored verifier
+    const verifier = sessionStorage.getItem("ave_code_verifier");
+
+    // Exchange code for tokens
+    const tokens = await exchangeCode(
+      {
+        clientId: "YOUR_CLIENT_ID",
+        redirectUri: "https://yourapp.com/callback",
+      },
+      {
+        code,
+        codeVerifier: verifier,
+      }
+    );
+
+    console.log(tokens.access_token);
+    console.log(tokens.id_token);
+    ```
+  </Step>
+</Steps>
+
+## API Reference
+
+### generateCodeVerifier
+
+Generates a cryptographically random code verifier for PKCE.
+
+```ts
+function generateCodeVerifier(): string
+```
+
+**Returns:** A base64url-encoded random string
+
+**Example:**
+```ts
+const verifier = generateCodeVerifier();
+// "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+```
+
+---
+
+### generateCodeChallenge
+
+Generates a code challenge from a verifier using SHA-256.
+
+```ts
+function generateCodeChallenge(verifier: string): Promise<string>
+```
+
+<ParamField path="verifier" type="string" required>
+  The code verifier from `generateCodeVerifier()`
+</ParamField>
+
+**Returns:** A base64url-encoded SHA-256 hash of the verifier
+
+**Example:**
+```ts
+const challenge = await generateCodeChallenge(verifier);
+// "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+```
+
+---
+
+### buildAuthorizeUrl
+
+Builds the OAuth authorization URL.
+
+```ts
+function buildAuthorizeUrl(
+  config: AveConfig,
+  params?: {
+    scope?: Scope[];
+    state?: string;
+    nonce?: string;
+    codeChallenge?: string;
+    codeChallengeMethod?: "S256" | "plain";
+    extraParams?: Record<string, string>;
+  }
+): string
+```
+
+<ParamField path="config" type="AveConfig" required>
+  Configuration object
+  <Expandable title="properties">
+    <ParamField path="clientId" type="string" required>
+      Your application's client ID
+    </ParamField>
+    <ParamField path="redirectUri" type="string" required>
+      Where to redirect after login
+    </ParamField>
+    <ParamField path="issuer" type="string" default="https://aveid.net">
+      Ave issuer URL (optional, defaults to production)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="params" type="object">
+  Authorization parameters
+  <Expandable title="properties">
+    <ParamField path="scope" type="Scope[]" default='["openid", "profile", "email"]'>
+      OAuth scopes to request. Available: `openid`, `profile`, `email`, `offline_access`, `user_id`
+    </ParamField>
+    <ParamField path="state" type="string">
+      State parameter for CSRF protection
+    </ParamField>
+    <ParamField path="nonce" type="string">
+      Nonce for ID token validation
+    </ParamField>
+    <ParamField path="codeChallenge" type="string">
+      PKCE code challenge
+    </ParamField>
+    <ParamField path="codeChallengeMethod" type="'S256' | 'plain'" default="S256">
+      PKCE challenge method
+    </ParamField>
+    <ParamField path="extraParams" type="Record<string, string>">
+      Additional query parameters
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Returns:** The full authorization URL
+
+**Example:**
+```ts
+const url = buildAuthorizeUrl(
+  { clientId: "app_123", redirectUri: "https://app.com/callback" },
+  { scope: ["openid", "email"], codeChallenge: challenge }
+);
+// https://aveid.net/signin?client_id=app_123&redirect_uri=...
+```
+
+---
+
+### exchangeCode
+
+Exchanges an authorization code for access tokens.
+
+```ts
+function exchangeCode(
+  config: AveConfig,
+  payload: {
+    code: string;
+    codeVerifier?: string;
+  }
+): Promise<TokenResponse>
+```
+
+<ParamField path="config" type="AveConfig" required>
+  Configuration object (same as `buildAuthorizeUrl`)
+</ParamField>
+
+<ParamField path="payload" type="object" required>
+  <Expandable title="properties">
+    <ParamField path="code" type="string" required>
+      Authorization code from the callback
+    </ParamField>
+    <ParamField path="codeVerifier" type="string">
+      PKCE code verifier (required if using PKCE)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Returns:** `TokenResponse` object
+
+<ResponseField name="access_token" type="string">
+  Opaque access token
+</ResponseField>
+<ResponseField name="access_token_jwt" type="string">
+  JWT version of the access token
+</ResponseField>
+<ResponseField name="id_token" type="string">
+  OIDC ID token (if `openid` scope requested)
+</ResponseField>
+<ResponseField name="refresh_token" type="string">
+  Refresh token (if `offline_access` scope requested)
+</ResponseField>
+<ResponseField name="expires_in" type="number">
+  Token lifetime in seconds
+</ResponseField>
+<ResponseField name="scope" type="string">
+  Granted scopes (space-separated)
+</ResponseField>
+
+---
+
+### refreshToken
+
+Exchanges a refresh token for new access tokens.
+
+```ts
+function refreshToken(
+  config: AveConfig,
+  payload: { refreshToken: string }
+): Promise<TokenResponse>
+```
+
+<ParamField path="config" type="AveConfig" required>
+  Configuration object
+</ParamField>
+
+<ParamField path="payload.refreshToken" type="string" required>
+  The refresh token from a previous token response
+</ParamField>
+
+**Returns:** `TokenResponse` with new tokens
+
+**Example:**
+```ts
+const newTokens = await refreshToken(
+  { clientId: "app_123", redirectUri: "https://app.com/callback" },
+  { refreshToken: tokens.refresh_token }
+);
+```
+
+---
+
+### fetchUserInfo
+
+Fetches user information from the OIDC UserInfo endpoint.
+
+```ts
+function fetchUserInfo(
+  config: AveConfig,
+  accessToken: string
+): Promise<UserInfo>
+```
+
+<ParamField path="config" type="AveConfig" required>
+  Configuration object
+</ParamField>
+
+<ParamField path="accessToken" type="string" required>
+  Access token from token exchange
+</ParamField>
+
+**Returns:** `UserInfo` object
+
+<ResponseField name="sub" type="string">
+  Subject identifier (user ID)
+</ResponseField>
+<ResponseField name="name" type="string">
+  User's display name
+</ResponseField>
+<ResponseField name="preferred_username" type="string">
+  User's handle (e.g., @alice)
+</ResponseField>
+<ResponseField name="email" type="string">
+  User's email address
+</ResponseField>
+<ResponseField name="picture" type="string">
+  Avatar URL
+</ResponseField>
+
+**Example:**
+```ts
+const userInfo = await fetchUserInfo(
+  { clientId: "app_123", redirectUri: "https://app.com/callback" },
+  tokens.access_token
+);
+
+console.log(userInfo.preferred_username); // "@alice"
+```
+
+## Connector Flow
+
+The connector flow allows users to delegate access to third-party resources.
+
+### buildConnectorUrl
+
+Builds a URL for the connector authorization flow.
+
+```ts
+function buildConnectorUrl(
+  config: AveConfig,
+  params: {
+    state?: string;
+    resource: string;
+    scope: string;
+    mode?: "user_present" | "background";
+    extraParams?: Record<string, string>;
+  }
+): string
+```
+
+<ParamField path="params.resource" type="string" required>
+  Resource identifier (e.g., `github.com`)
+</ParamField>
+
+<ParamField path="params.scope" type="string" required>
+  Space-separated scopes for the target resource
+</ParamField>
+
+<ParamField path="params.mode" type="'user_present' | 'background'" default="user_present">
+  Communication mode for the delegation
+</ParamField>
+
+**Example:**
+```ts
+const url = buildConnectorUrl(
+  { clientId: "app_123", redirectUri: "https://app.com/callback" },
+  {
+    resource: "github.com",
+    scope: "repo user",
+    mode: "user_present",
+  }
+);
+
+window.location.href = url;
+```
+
+---
+
+### exchangeDelegatedToken
+
+Exchanges a user's access token for a delegated token to a third-party resource.
+
+```ts
+function exchangeDelegatedToken(
+  config: AveConfig,
+  payload: {
+    subjectToken: string;
+    requestedResource: string;
+    requestedScope: string;
+    actor?: Record<string, unknown>;
+    clientSecret?: string;
+  }
+): Promise<DelegationTokenResponse>
+```
+
+<ParamField path="payload.subjectToken" type="string" required>
+  User's access token
+</ParamField>
+
+<ParamField path="payload.requestedResource" type="string" required>
+  Target resource identifier
+</ParamField>
+
+<ParamField path="payload.requestedScope" type="string" required>
+  Requested scopes for the resource
+</ParamField>
+
+**Example:**
+```ts
+const delegatedToken = await exchangeDelegatedToken(
+  { clientId: "app_123", redirectUri: "https://app.com/callback" },
+  {
+    subjectToken: userAccessToken,
+    requestedResource: "github.com",
+    requestedScope: "repo",
+  }
+);
+
+// Use delegatedToken.access_token to call GitHub API
+```

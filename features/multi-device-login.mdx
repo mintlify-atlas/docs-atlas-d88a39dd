@@ -1,0 +1,480 @@
+---
+title: "Multi-Device Login"
+description: "Approve login requests from your trusted devices with secure key transfer"
+---
+
+Ave's **device approval flow** lets you sign in on new devices by approving the request from a device you're already logged into. The master key is securely transferred using ephemeral key exchange.
+
+## How It Works
+
+When you try to log in on a new device without a passkey:
+
+<Steps>
+  <Step title="Request approval">
+    The new device generates an **ephemeral ECDH key pair** and sends a login request to Ave with the public key.
+  </Step>
+  
+  <Step title="Real-time notification">
+    Your trusted devices receive a **WebSocket notification** instantly. A badge appears on the "Login Requests" menu.
+  </Step>
+  
+  <Step title="Review request">
+    You see the requesting device's name, browser, OS, IP address, and timestamp. You can approve or deny.
+  </Step>
+  
+  <Step title="Secure key transfer">
+    If approved, your trusted device encrypts the master key using **ECDH** (Elliptic Curve Diffie-Hellman) and sends it to Ave.
+  </Step>
+  
+  <Step title="Automatic login">
+    The new device receives the encrypted master key, decrypts it with its private key, and logs in automatically.
+  </Step>
+</Steps>
+
+## Creating a Login Request
+
+From the login page, select "Confirm on a trusted device":
+
+```typescript
+// POST /api/login/request-approval
+{
+  "handle": "alice",
+  "requesterPublicKey": "BEhT3l8Y2...base64-encoded-key",
+  "device": {
+    "name": "Chrome on MacBook",
+    "type": "computer",
+    "browser": "Chrome 120",
+    "os": "macOS 14.2",
+    "fingerprint": "abc123def456" // Browser fingerprint
+  }
+}
+```
+
+From `login.ts:318-405`, the server:
+
+1. Validates the handle exists
+2. Creates a `loginRequests` record with:
+   - Device metadata (name, type, browser, OS)
+   - Requester's ephemeral public key
+   - IP address and fingerprint
+   - 5-minute expiration timestamp
+3. Sends WebSocket notifications to all active devices
+4. Sends push notifications to devices with subscriptions
+
+```typescript
+// From login.ts:360-367
+notifyLoginRequest(handle.toLowerCase(), {
+  id: request.id,
+  deviceName: request.deviceName,
+  deviceType: request.deviceType,
+  browser: request.browser,
+  os: request.os,
+  ipAddress: request.ipAddress,
+});
+```
+
+<Info>
+  Login requests expire after **5 minutes** for security. If not approved or denied within this window, the request is automatically expired.
+</Info>
+
+## Real-Time Notifications
+
+Ave uses **WebSocket** for instant notifications:
+
+```typescript
+// Client connects to WebSocket when logged in
+const ws = new WebSocket('wss://api.aveid.net/ws');
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({ type: 'auth', token: sessionToken }));
+};
+
+ws.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  
+  if (message.type === 'login_request') {
+    // Show notification badge
+    updateLoginRequestsBadge(message.data);
+  }
+};
+```
+
+The WebSocket connection:
+- Authenticates using your session token
+- Subscribes to events for your handle
+- Receives login requests, approvals, and denials in real-time
+- Automatically reconnects if disconnected
+
+### Push Notifications
+
+Devices can also receive **web push notifications**:
+
+```typescript
+// From login.ts:375-399
+for (const userDevice of userDevices) {
+  if (userDevice.pushSubscription) {
+    const sent = await sendLoginRequestNotification(subscription, {
+      requestId: request.id,
+      deviceName: request.deviceName || "Unknown Device",
+      deviceType: request.deviceType || "computer",
+      browser: request.browser || undefined,
+      os: request.os || undefined,
+      ipAddress: request.ipAddress || undefined,
+    });
+    
+    // Remove invalid subscriptions
+    if (!sent) {
+      await db.update(devices)
+        .set({ pushSubscription: null })
+        .where(eq(devices.id, userDevice.id));
+    }
+  }
+}
+```
+
+Push notifications work even when Ave is closed, ensuring you never miss a login request.
+
+## Approving Requests
+
+From your trusted device, navigate to "Login Requests" to see pending requests:
+
+```typescript
+// GET /api/login-requests (from authenticated endpoint)
+// Returns all pending requests for your identities
+
+{
+  "requests": [
+    {
+      "id": "req_123",
+      "deviceName": "Chrome on MacBook",
+      "deviceType": "computer",
+      "browser": "Chrome 120",
+      "os": "macOS 14.2",
+      "ipAddress": "192.168.1.10",
+      "createdAt": "2024-01-01T12:00:00Z",
+      "expiresAt": "2024-01-01T12:05:00Z"
+    }
+  ]
+}
+```
+
+To approve:
+
+```typescript
+// POST /api/login-requests/:id/approve
+{
+  "encryptedMasterKey": "base64-encrypted-master-key",
+  "approverPublicKey": "base64-ephemeral-public-key"
+}
+```
+
+### Ephemeral Key Exchange
+
+The approving device generates its own ephemeral key pair:
+
+```typescript
+// Generate approver's ephemeral key pair
+const approverKeyPair = await crypto.subtle.generateKey(
+  { name: 'ECDH', namedCurve: 'P-256' },
+  true,
+  ['deriveKey']
+);
+
+// Load requester's public key (from login request)
+const requesterPublicKey = await crypto.subtle.importKey(
+  'raw',
+  base64ToArrayBuffer(request.requesterPublicKey),
+  { name: 'ECDH', namedCurve: 'P-256' },
+  false,
+  []
+);
+
+// Derive shared secret using ECDH
+const sharedSecret = await crypto.subtle.deriveKey(
+  { name: 'ECDH', public: requesterPublicKey },
+  approverKeyPair.privateKey,
+  { name: 'AES-GCM', length: 256 },
+  false,
+  ['encrypt']
+);
+
+// Encrypt master key with shared secret
+const iv = crypto.getRandomValues(new Uint8Array(12));
+const masterKeyBytes = base64ToArrayBuffer(localStorage.getItem('ave_master_key'));
+
+const encryptedMasterKey = await crypto.subtle.encrypt(
+  { name: 'AES-GCM', iv },
+  sharedSecret,
+  masterKeyBytes
+);
+
+// Send to Ave (server cannot decrypt)
+await fetch(`/api/login-requests/${requestId}/approve`, {
+  method: 'POST',
+  body: JSON.stringify({
+    encryptedMasterKey: arrayBufferToBase64(encryptedMasterKey),
+    approverPublicKey: await exportPublicKey(approverKeyPair.publicKey),
+    iv: arrayBufferToBase64(iv)
+  })
+});
+```
+
+From `login.ts:426-504`, when approved:
+
+1. Ave updates the request with `encryptedMasterKey` and `approverPublicKey`
+2. Creates a new session for the requesting device
+3. Notifies the requester via WebSocket
+4. Returns session token and encrypted master key
+
+```typescript
+return c.json({
+  status: "approved",
+  sessionToken,
+  encryptedMasterKey: request.encryptedMasterKey,
+  approverPublicKey: request.approverPublicKey,
+  device: { id, name, type },
+  identities: [...]
+});
+```
+
+<Note>
+  The shared secret is derived independently by both devices using ECDH. Ave never sees the unencrypted master key or the shared secret.
+</Note>
+
+## Polling for Status
+
+If WebSocket is unavailable, the requesting device polls for status:
+
+```typescript
+// GET /api/login/request-status/:requestId
+// Polls every 2 seconds
+
+setInterval(async () => {
+  const response = await fetch(`/api/login/request-status/${requestId}`);
+  const data = await response.json();
+  
+  if (data.status === 'approved') {
+    // Decrypt master key and log in
+    await handleApproval(data);
+  } else if (data.status === 'denied') {
+    showError('Request denied by user');
+  } else if (data.status === 'expired') {
+    showError('Request expired. Please try again.');
+  }
+}, 2000);
+```
+
+From `login.ts:407-514`, the polling endpoint:
+
+- Returns current status (`pending`, `approved`, `denied`, `expired`)
+- Automatically marks expired requests
+- Creates session when first polled after approval
+- Deletes request after successful login
+
+## Decrypting on New Device
+
+When the request is approved, the new device receives:
+
+```json
+{
+  "status": "approved",
+  "sessionToken": "abc123...",
+  "encryptedMasterKey": "base64-encrypted-data",
+  "approverPublicKey": "base64-public-key"
+}
+```
+
+The new device decrypts the master key:
+
+```typescript
+// Load approver's public key
+const approverPublicKey = await crypto.subtle.importKey(
+  'raw',
+  base64ToArrayBuffer(response.approverPublicKey),
+  { name: 'ECDH', namedCurve: 'P-256' },
+  false,
+  []
+);
+
+// Derive same shared secret using our private key
+const sharedSecret = await crypto.subtle.deriveKey(
+  { name: 'ECDH', public: approverPublicKey },
+  requesterKeyPair.privateKey, // Our ephemeral private key
+  { name: 'AES-GCM', length: 256 },
+  false,
+  ['decrypt']
+);
+
+// Decrypt master key
+const masterKeyBytes = await crypto.subtle.decrypt(
+  { name: 'AES-GCM', iv },
+  sharedSecret,
+  base64ToArrayBuffer(response.encryptedMasterKey)
+);
+
+// Store in localStorage
+const masterKeyB64 = arrayBufferToBase64(masterKeyBytes);
+localStorage.setItem('ave_master_key', masterKeyB64);
+
+// Save session token
+localStorage.setItem('ave_session', response.sessionToken);
+
+// Redirect to dashboard
+window.location.href = '/dashboard';
+```
+
+<Info>
+  The ephemeral key pairs are **discarded immediately** after the exchange. Even if Ave's servers are compromised, past master key transfers cannot be decrypted.
+</Info>
+
+## Denying Requests
+
+To deny a login request:
+
+```typescript
+// POST /api/login-requests/:id/deny
+
+await fetch(`/api/login-requests/${requestId}/deny`, {
+  method: 'POST'
+});
+```
+
+The request is marked as denied and deleted. The requesting device is notified via WebSocket or polling.
+
+## Device Fingerprinting
+
+Ave uses browser fingerprinting to recognize returning devices:
+
+```typescript
+// Client generates fingerprint
+const fingerprint = await generateFingerprint({
+  canvas: true,
+  webgl: true,
+  audio: false // Privacy-friendly
+});
+
+// Include in device info
+const device = {
+  name: 'Chrome on MacBook',
+  type: 'computer',
+  fingerprint: fingerprint // Unique ID for this browser
+};
+```
+
+From `login.ts:29-88`, when logging in:
+
+```typescript
+if (deviceInfo.fingerprint) {
+  const [existingDevice] = await db
+    .select()
+    .from(devices)
+    .where(and(
+      eq(devices.userId, userId),
+      eq(devices.fingerprint, deviceInfo.fingerprint)
+    ));
+  
+  if (existingDevice) {
+    // Reuse existing device, update metadata
+    return { id: existingDevice.id, isNew: false };
+  }
+}
+```
+
+Benefits:
+- Fewer device records in your account
+- Accurate "last seen" timestamps
+- Better security insights (see if unknown devices logged in)
+
+<Warning>
+  Device fingerprints can change if you:
+  - Clear browser data
+  - Update browser or OS
+  - Change screen resolution
+  - Disable JavaScript APIs
+  
+  This is expected and will create a new device entry.
+</Warning>
+
+## Security Considerations
+
+### Request Expiration
+
+Login requests expire after **5 minutes**:
+
+```typescript
+// From login.ts:354
+expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+```
+
+This prevents:
+- Stale requests from being approved hours later
+- Attackers from waiting for you to accidentally approve old requests
+
+### IP Address Logging
+
+Ave logs the IP address of the requesting device:
+
+```typescript
+// From login.ts:353
+ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip")
+```
+
+You can see if the request is from:
+- Same network (home/office)
+- Different city/country
+- Known VPN/proxy
+
+### Activity Logging
+
+Both approval and denial are logged:
+
+```typescript
+// From login.ts:466-475
+await db.insert(activityLogs).values({
+  userId: identity.userId,
+  action: "login",
+  details: { 
+    method: "device_approval", 
+    deviceName: deviceRecord.name,
+    isNewDevice: deviceRecord.isNew 
+  },
+  deviceId: deviceRecord.id,
+  severity: "info"
+});
+```
+
+You can review all login approvals in your Activity Log.
+
+## Fallback Methods
+
+If device approval fails or times out, you can:
+
+1. **Use a passkey** if you have one registered on the new device
+2. **Enter a trust code** to recover your master key
+3. **Contact support** if you've lost all access (account may be unrecoverable)
+
+## Testing the Flow
+
+From `TESTING.md:156-297`, to test multi-device login:
+
+1. **Device 1**: Log in normally and keep the window open
+2. **Device 2**: Open an incognito window, enter your handle
+3. **Device 2**: Click "Confirm on a trusted device"
+4. **Device 1**: See the notification badge, navigate to "Login Requests"
+5. **Device 1**: Review the request details and click "Approve"
+6. **Device 2**: Automatically logged in within 1-2 seconds
+
+<Info>
+  Test the denial flow by clicking "Deny" instead of "Approve". The requesting device should show "Request denied" immediately.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Passwordless Auth" icon="fingerprint" href="/features/passwordless-auth">
+    Learn about passkey authentication
+  </Card>
+  <Card title="End-to-End Encryption" icon="lock" href="/features/end-to-end-encryption">
+    Understand how master keys are encrypted
+  </Card>
+</CardGroup>

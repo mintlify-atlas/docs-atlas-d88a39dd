@@ -1,0 +1,288 @@
+---
+title: "Modal sheet"
+description: "Mobile-friendly bottom sheet overlay with openAveSheet"
+---
+
+# Modal Sheet Embedding
+
+The `openAveSheet()` function displays the Ave authentication flow in a mobile-friendly bottom sheet overlay. This provides a native app-like experience, especially on mobile devices.
+
+## Basic Usage
+
+```js
+import { openAveSheet } from "@ave-id/embed";
+
+const sheet = openAveSheet({
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  scope: "openid profile email",
+  onSuccess: ({ redirectUrl }) => {
+    window.location.href = redirectUrl;
+  },
+  onError: (payload) => console.error("Sheet error", payload),
+  onClose: () => console.log("Sheet closed"),
+});
+
+// Later, programmatically close the sheet if needed
+// sheet?.close();
+```
+
+## Configuration Options
+
+### Required Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `clientId` | string | Your Ave client ID |
+| `redirectUri` | string | OAuth redirect URI for your application |
+
+### Optional Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `scope` | string | `"openid profile email"` | OAuth scopes to request |
+| `issuer` | string | `"https://aveid.net"` | Ave issuer URL |
+| `theme` | string | - | Theme customization |
+| `onSuccess` | function | - | Success callback |
+| `onError` | function | - | Error callback |
+| `onClose` | function | - | Close callback |
+
+## Examples
+
+### Button Trigger
+
+```js
+import { openAveSheet } from "@ave-id/embed";
+
+const signInButton = document.getElementById("sign-in-btn");
+
+signInButton.addEventListener("click", () => {
+  openAveSheet({
+    clientId: "YOUR_CLIENT_ID",
+    redirectUri: "https://yourapp.com/callback",
+    onSuccess: ({ redirectUrl }) => {
+      window.location.href = redirectUrl;
+    },
+    onError: (error) => {
+      alert("Sign in failed. Please try again.");
+    },
+    onClose: () => {
+      console.log("User dismissed the sign-in sheet");
+    },
+  });
+});
+```
+
+### With Theme
+
+```js
+import { openAveSheet } from "@ave-id/embed";
+
+const sheet = openAveSheet({
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  theme: "dark",
+  onSuccess: ({ redirectUrl }) => {
+    window.location.href = redirectUrl;
+  },
+});
+```
+
+### React Integration
+
+```jsx
+import { openAveSheet } from "@ave-id/embed";
+
+function SignInButton() {
+  const handleSignIn = () => {
+    const sheet = openAveSheet({
+      clientId: process.env.REACT_APP_AVE_CLIENT_ID,
+      redirectUri: `${window.location.origin}/callback`,
+      scope: "openid profile email",
+      onSuccess: ({ redirectUrl }) => {
+        window.location.href = redirectUrl;
+      },
+      onError: (error) => {
+        console.error("Sign-in error:", error);
+      },
+      onClose: () => {
+        console.log("Sheet closed");
+      },
+    });
+  };
+
+  return (
+    <button onClick={handleSignIn}>
+      Sign in with Ave
+    </button>
+  );
+}
+```
+
+### Vue Integration
+
+```vue
+<template>
+  <button @click="handleSignIn">Sign in with Ave</button>
+</template>
+
+<script>
+import { openAveSheet } from "@ave-id/embed";
+
+export default {
+  methods: {
+    handleSignIn() {
+      openAveSheet({
+        clientId: process.env.VUE_APP_AVE_CLIENT_ID,
+        redirectUri: `${window.location.origin}/callback`,
+        scope: "openid profile email",
+        onSuccess: ({ redirectUrl }) => {
+          window.location.href = redirectUrl;
+        },
+        onError: (error) => {
+          console.error("Sign-in error:", error);
+        },
+        onClose: () => {
+          console.log("Sheet closed");
+        },
+      });
+    },
+  },
+};
+</script>
+```
+
+### Programmatic Close
+
+You can programmatically close the sheet when needed:
+
+```js
+import { openAveSheet } from "@ave-id/embed";
+
+const sheet = openAveSheet({
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  onSuccess: ({ redirectUrl }) => {
+    window.location.href = redirectUrl;
+  },
+});
+
+// Close the sheet after 30 seconds if still open
+setTimeout(() => {
+  sheet?.close();
+}, 30000);
+```
+
+## Return Value
+
+The `openAveSheet()` function returns an object with:
+
+```js
+{
+  close: () => void // Function to programmatically close the sheet
+}
+```
+
+## Callbacks
+
+### onSuccess
+
+Called when the user successfully completes authentication:
+
+```js
+onSuccess: ({ redirectUrl }) => {
+  // redirectUrl contains the OAuth callback URL with authorization code
+  window.location.href = redirectUrl;
+}
+```
+
+### onError
+
+Called when an error occurs during the authentication flow:
+
+```js
+onError: (payload) => {
+  console.error("Authentication error:", payload);
+  // Show user-friendly error message
+  alert("Sign in failed. Please try again.");
+}
+```
+
+### onClose
+
+Called when the user dismisses the sheet by clicking outside or the close button:
+
+```js
+onClose: () => {
+  console.log("User closed the authentication sheet");
+  // Track analytics, show fallback UI, etc.
+}
+```
+
+<Note>
+The `onClose` callback fires when the user dismisses the sheet, but not when authentication succeeds (use `onSuccess` for that).
+</Note>
+
+## Mobile Optimization
+
+The modal sheet is specifically designed for mobile devices:
+
+- Slides up from the bottom on mobile
+- Respects safe areas on iOS devices
+- Supports swipe-to-dismiss gestures
+- Adapts to landscape/portrait orientation
+- Prevents body scroll while open
+
+<Note>
+On desktop browsers, the sheet displays as a centered modal dialog for consistent UX across devices.
+</Note>
+
+## Security Considerations
+
+<Warning>
+**Important security notes:**
+
+- Always use HTTPS for your `redirectUri` in production
+- Validate the `redirectUrl` origin before redirecting to prevent open redirects
+- Store your `clientId` securely and avoid hardcoding sensitive values
+- The sheet uses postMessage for communication - ensure your CSP allows this
+- The sheet overlay prevents interaction with the underlying page during authentication
+</Warning>
+
+## When to Use
+
+Choose modal sheets when:
+
+- Building mobile-first applications
+- You want a native app-like experience
+- Authentication should be triggered by user action (button click)
+- You need to maintain context of the underlying page
+- You want users to easily dismiss the authentication flow
+
+## When to Use Alternatives
+
+- **Inline iframe** - For dedicated sign-in pages with embedded authentication
+- **Popup window** - For desktop-focused applications or multi-window workflows
+
+## Browser Compatibility
+
+<Note>
+The modal sheet requires:
+- Modern browser with iframe and overlay support
+- postMessage API support
+- JavaScript enabled
+- CSS3 transforms and transitions for animations
+
+All modern mobile browsers (iOS Safari, Chrome Mobile, Samsung Internet) are fully supported.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Inline iframe" icon="window" href="/embed/inline-iframe">
+    Embed authentication directly in your page
+  </Card>
+  <Card title="Popup window" icon="window-restore" href="/embed/popup-window">
+    Open authentication in a popup window
+  </Card>
+</CardGroup>

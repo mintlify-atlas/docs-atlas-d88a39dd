@@ -1,0 +1,663 @@
+---
+title: Digital Signature API
+description: Request and verify cryptographic signatures from Ave users
+---
+
+The Ave Signing API allows applications to request cryptographic signatures from users using their Ave identity keys. This enables secure document signing, transaction approval, and authentication flows.
+
+## How It Works
+
+<Steps>
+  <Step title="Create signature request">
+    Your server creates a signature request with the payload to sign.
+  </Step>
+  
+  <Step title="User signs">
+    Redirect the user to Ave where they review and sign the payload with their private key.
+  </Step>
+  
+  <Step title="Retrieve signature">
+    Poll the signature status or receive a callback when the user signs.
+  </Step>
+  
+  <Step title="Verify signature">
+    Verify the signature using the user's public key.
+  </Step>
+</Steps>
+
+## Quick Start
+
+Here's a complete signing flow:
+
+```ts
+import {
+  createSignatureRequest,
+  buildSigningUrl,
+  getSignatureStatus,
+  verifySignature,
+} from "@ave-id/sdk";
+
+// 1. Create signature request (server-side)
+const request = await createSignatureRequest(
+  {
+    clientId: "YOUR_CLIENT_ID",
+    clientSecret: process.env.AVE_CLIENT_SECRET!,
+  },
+  {
+    identityId: "user_identity_id",
+    payload: "Sign this document",
+    metadata: { documentId: "doc_123" },
+  }
+);
+
+// 2. Redirect user to signing page
+const signingUrl = buildSigningUrl({}, request.requestId);
+window.location.href = signingUrl;
+
+// 3. Check signature status
+const result = await getSignatureStatus(
+  { clientId: "YOUR_CLIENT_ID" },
+  request.requestId
+);
+
+if (result.status === "signed" && result.signature) {
+  // 4. Verify signature
+  const verification = await verifySignature(
+    {},
+    {
+      message: "Sign this document",
+      signature: result.signature,
+      publicKey: request.publicKey,
+    }
+  );
+
+  console.log("Valid:", verification.valid);
+}
+```
+
+## API Reference
+
+### createSignatureRequest
+
+Creates a new signature request. This must be called from your server with client credentials.
+
+```ts
+function createSignatureRequest(
+  config: SigningConfig,
+  params: {
+    identityId: string;
+    payload: string;
+    metadata?: Record<string, unknown>;
+    expiresInSeconds?: number;
+  }
+): Promise<SignatureRequest>
+```
+
+<ParamField path="config" type="SigningConfig" required>
+  Signing configuration
+  <Expandable title="properties">
+    <ParamField path="clientId" type="string" required>
+      Your application's client ID
+    </ParamField>
+    <ParamField path="clientSecret" type="string" required>
+      Your application's client secret (server-side only)
+    </ParamField>
+    <ParamField path="issuer" type="string" default="https://aveid.net">
+      Ave issuer URL
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="params" type="object" required>
+  <Expandable title="properties">
+    <ParamField path="identityId" type="string" required>
+      The Ave identity ID of the user who should sign (from user profile)
+    </ParamField>
+    <ParamField path="payload" type="string" required>
+      The message/document to be signed
+    </ParamField>
+    <ParamField path="metadata" type="Record<string, unknown>">
+      Optional metadata to store with the request
+    </ParamField>
+    <ParamField path="expiresInSeconds" type="number" default={300}>
+      Request expiration time (default: 5 minutes)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Returns:** `SignatureRequest`
+
+<ResponseField name="requestId" type="string">
+  Unique identifier for this signature request
+</ResponseField>
+<ResponseField name="expiresAt" type="string">
+  ISO 8601 timestamp when the request expires
+</ResponseField>
+<ResponseField name="publicKey" type="string">
+  User's public signing key (for verification)
+</ResponseField>
+
+**Example:**
+
+```ts
+const request = await createSignatureRequest(
+  {
+    clientId: "app_123",
+    clientSecret: process.env.AVE_SECRET!,
+  },
+  {
+    identityId: "identity_abc456",
+    payload: JSON.stringify({
+      action: "transfer",
+      amount: 1000,
+      to: "user_xyz",
+    }),
+    metadata: {
+      transactionId: "txn_789",
+      timestamp: new Date().toISOString(),
+    },
+    expiresInSeconds: 600, // 10 minutes
+  }
+);
+
+console.log(request.requestId); // "req_abc123"
+```
+
+---
+
+### buildSigningUrl
+
+Builds the URL to redirect users for signing.
+
+```ts
+function buildSigningUrl(
+  config: { issuer?: string },
+  requestId: string,
+  options?: { embed?: boolean }
+): string
+```
+
+<ParamField path="config.issuer" type="string" default="https://aveid.net">
+  Ave issuer URL
+</ParamField>
+
+<ParamField path="requestId" type="string" required>
+  The request ID from `createSignatureRequest`
+</ParamField>
+
+<ParamField path="options.embed" type="boolean" default={false}>
+  If `true`, optimizes the UI for iframe embedding
+</ParamField>
+
+**Returns:** Full signing URL
+
+**Example:**
+
+```ts
+const url = buildSigningUrl({}, "req_abc123");
+// https://aveid.net/sign?requestId=req_abc123
+
+// For iframe
+const embedUrl = buildSigningUrl({}, "req_abc123", { embed: true });
+// https://aveid.net/sign?requestId=req_abc123&embed=1
+```
+
+---
+
+### openSigningPopup
+
+Opens a popup window for signing and returns a promise that resolves when complete.
+
+```ts
+function openSigningPopup(
+  config: { issuer?: string },
+  requestId: string
+): Promise<{
+  signed: boolean;
+  signature?: string;
+  publicKey?: string;
+}>
+```
+
+<ParamField path="config.issuer" type="string" default="https://aveid.net">
+  Ave issuer URL
+</ParamField>
+
+<ParamField path="requestId" type="string" required>
+  The request ID from `createSignatureRequest`
+</ParamField>
+
+**Returns:** Promise that resolves with signature result
+
+<ResponseField name="signed" type="boolean">
+  Whether the user signed the request
+</ResponseField>
+<ResponseField name="signature" type="string">
+  The cryptographic signature (if signed)
+</ResponseField>
+<ResponseField name="publicKey" type="string">
+  User's public key (if signed)
+</ResponseField>
+
+**Example:**
+
+```ts
+import { openSigningPopup } from "@ave-id/sdk";
+
+async function requestSignature(requestId: string) {
+  try {
+    const result = await openSigningPopup({}, requestId);
+
+    if (result.signed) {
+      console.log("Signature:", result.signature);
+      console.log("Public key:", result.publicKey);
+      // Save signature to your database
+    } else {
+      console.log("User denied signature request");
+    }
+  } catch (error) {
+    console.error("Popup blocked or closed:", error);
+  }
+}
+```
+
+**Behavior:**
+- Opens a centered popup window (500x600)
+- Listens for `postMessage` events from Ave
+- Resolves when user signs or denies
+- Resolves with `signed: false` if popup is closed
+- Rejects if popup is blocked by browser
+
+---
+
+### getSignatureStatus
+
+Checks the status of a signature request.
+
+```ts
+function getSignatureStatus(
+  config: { clientId: string; issuer?: string },
+  requestId: string
+): Promise<SignatureResult>
+```
+
+<ParamField path="config" type="object" required>
+  <Expandable title="properties">
+    <ParamField path="clientId" type="string" required>
+      Your application's client ID
+    </ParamField>
+    <ParamField path="issuer" type="string" default="https://aveid.net">
+      Ave issuer URL
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="requestId" type="string" required>
+  The signature request ID
+</ParamField>
+
+**Returns:** `SignatureResult`
+
+<ResponseField name="status" type="'pending' | 'signed' | 'denied' | 'expired'">
+  Current status of the request
+</ResponseField>
+<ResponseField name="signature" type="string">
+  Signature (only present if status is `signed`)
+</ResponseField>
+<ResponseField name="resolvedAt" type="string">
+  ISO 8601 timestamp when signed/denied (if resolved)
+</ResponseField>
+
+**Example:**
+
+```ts
+// Poll for signature
+const checkStatus = async (requestId: string) => {
+  const interval = setInterval(async () => {
+    const result = await getSignatureStatus(
+      { clientId: "app_123" },
+      requestId
+    );
+
+    if (result.status === "signed") {
+      clearInterval(interval);
+      console.log("Signed!", result.signature);
+    } else if (result.status === "denied") {
+      clearInterval(interval);
+      console.log("User denied signature");
+    } else if (result.status === "expired") {
+      clearInterval(interval);
+      console.log("Request expired");
+    }
+  }, 2000); // Poll every 2 seconds
+};
+```
+
+---
+
+### getPublicKey
+
+Retrieves a user's public signing key by their Ave handle.
+
+```ts
+function getPublicKey(
+  config: { issuer?: string },
+  handle: string
+): Promise<{
+  handle: string;
+  publicKey: string;
+  createdAt: string;
+}>
+```
+
+<ParamField path="config.issuer" type="string" default="https://aveid.net">
+  Ave issuer URL
+</ParamField>
+
+<ParamField path="handle" type="string" required>
+  Ave handle (with or without @ prefix)
+</ParamField>
+
+**Returns:** Public key information
+
+**Example:**
+
+```ts
+const keyInfo = await getPublicKey({}, "@alice");
+console.log(keyInfo.publicKey); // "04a1b2c3..."
+console.log(keyInfo.createdAt); // "2024-01-15T10:30:00Z"
+```
+
+---
+
+### verifySignature
+
+Verifies a signature using Ave's verification API.
+
+```ts
+function verifySignature(
+  config: { issuer?: string },
+  params: {
+    message: string;
+    signature: string;
+    publicKey: string;
+  }
+): Promise<{ valid: boolean; error?: string }>
+```
+
+<ParamField path="config.issuer" type="string" default="https://aveid.net">
+  Ave issuer URL
+</ParamField>
+
+<ParamField path="params" type="object" required>
+  <Expandable title="properties">
+    <ParamField path="message" type="string" required>
+      The original message that was signed
+    </ParamField>
+    <ParamField path="signature" type="string" required>
+      The signature to verify
+    </ParamField>
+    <ParamField path="publicKey" type="string" required>
+      The signer's public key
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Returns:** Verification result
+
+<ResponseField name="valid" type="boolean">
+  Whether the signature is valid
+</ResponseField>
+<ResponseField name="error" type="string">
+  Error message (if verification failed)
+</ResponseField>
+
+**Example:**
+
+```ts
+const result = await verifySignature(
+  {},
+  {
+    message: "Transfer $1000 to @bob",
+    signature: "3045022100...",
+    publicKey: "04a1b2c3...",
+  }
+);
+
+if (result.valid) {
+  console.log("Signature is valid!");
+  // Process the signed action
+} else {
+  console.error("Invalid signature:", result.error);
+}
+```
+
+## Complete Example: Document Signing
+
+Here's a full implementation of document signing:
+
+<CodeGroup>
+```tsx Frontend
+// components/DocumentSigner.tsx
+import { useState } from "react";
+import { openSigningPopup } from "@ave-id/sdk";
+
+export function DocumentSigner({ documentId, content }: Props) {
+  const [signing, setSigning] = useState(false);
+  const [signature, setSignature] = useState<string | null>(null);
+
+  const handleSign = async () => {
+    setSigning(true);
+
+    try {
+      // Create signature request on backend
+      const response = await fetch("/api/signatures/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentId, content }),
+      });
+
+      const { requestId } = await response.json();
+
+      // Open signing popup
+      const result = await openSigningPopup({}, requestId);
+
+      if (result.signed) {
+        // Store signature
+        await fetch("/api/signatures/store", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            documentId,
+            signature: result.signature,
+            publicKey: result.publicKey,
+          }),
+        });
+
+        setSignature(result.signature);
+      } else {
+        alert("Signature request was denied");
+      }
+    } catch (error) {
+      console.error("Signing failed:", error);
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  return (
+    <div>
+      <h3>Document: {documentId}</h3>
+      <pre>{content}</pre>
+
+      {signature ? (
+        <div>
+          <p>✓ Signed</p>
+          <code>{signature.slice(0, 20)}...</code>
+        </div>
+      ) : (
+        <button onClick={handleSign} disabled={signing}>
+          {signing ? "Signing..." : "Sign Document"}
+        </button>
+      )}
+    </div>
+  );
+}
+```
+
+```ts Backend API
+// app/api/signatures/create/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { createSignatureRequest } from "@ave-id/sdk";
+import { getSession } from "@/lib/auth";
+
+export async function POST(request: NextRequest) {
+  const session = await getSession(request);
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { documentId, content } = await request.json();
+
+  try {
+    const signRequest = await createSignatureRequest(
+      {
+        clientId: process.env.AVE_CLIENT_ID!,
+        clientSecret: process.env.AVE_CLIENT_SECRET!,
+      },
+      {
+        identityId: session.user.identityId,
+        payload: content,
+        metadata: { documentId },
+        expiresInSeconds: 300,
+      }
+    );
+
+    return NextResponse.json({
+      requestId: signRequest.requestId,
+      expiresAt: signRequest.expiresAt,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: "Failed to create signature request" },
+      { status: 500 }
+    );
+  }
+}
+```
+
+```ts Verification
+// app/api/signatures/verify/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { verifySignature } from "@ave-id/sdk";
+import { getDocument, getSignature } from "@/lib/db";
+
+export async function POST(request: NextRequest) {
+  const { documentId } = await request.json();
+
+  const document = await getDocument(documentId);
+  const signature = await getSignature(documentId);
+
+  if (!document || !signature) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const result = await verifySignature(
+    {},
+    {
+      message: document.content,
+      signature: signature.signature,
+      publicKey: signature.publicKey,
+    }
+  );
+
+  return NextResponse.json({
+    valid: result.valid,
+    error: result.error,
+    signedAt: signature.createdAt,
+    signer: signature.userHandle,
+  });
+}
+```
+</CodeGroup>
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Document Signing" icon="file-signature">
+    Legal documents, contracts, and agreements
+  </Card>
+  
+  <Card title="Transaction Approval" icon="credit-card">
+    Financial transactions and payment confirmations
+  </Card>
+  
+  <Card title="Authentication" icon="lock">
+    Passwordless login with cryptographic proof
+  </Card>
+  
+  <Card title="Data Attestation" icon="shield-check">
+    Prove ownership or authenticity of data
+  </Card>
+</CardGroup>
+
+## Security Considerations
+
+<Warning>
+  Always verify signatures on your backend before taking action. Never trust client-side verification alone.
+</Warning>
+
+<AccordionGroup>
+  <Accordion title="Store public keys securely">
+    Cache user public keys in your database to avoid repeated lookups:
+    
+    ```ts
+    // First time: fetch and store
+    const keyInfo = await getPublicKey({}, handle);
+    await db.users.update(userId, { publicKey: keyInfo.publicKey });
+    
+    // Later: use cached key
+    const user = await db.users.find(userId);
+    await verifySignature({}, {
+      message,
+      signature,
+      publicKey: user.publicKey,
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Set appropriate expiration times">
+    Choose expiration based on your use case:
+    - **Quick actions**: 60-300 seconds
+    - **Document review**: 600-1800 seconds (10-30 minutes)
+    - **Async workflows**: 3600+ seconds (1+ hours)
+  </Accordion>
+  
+  <Accordion title="Include context in payload">
+    Make payloads human-readable and include context:
+    
+    ```ts
+    const payload = JSON.stringify({
+      action: "approve_transaction",
+      amount: "$1,000.00",
+      recipient: "@bob",
+      timestamp: new Date().toISOString(),
+      nonce: crypto.randomUUID(), // Prevent replay
+    }, null, 2);
+    ```
+  </Accordion>
+  
+  <Accordion title="Prevent signature reuse">
+    Include nonces or timestamps to prevent replay attacks:
+    
+    ```ts
+    const nonce = crypto.randomUUID();
+    const payload = `${documentHash}:${nonce}:${Date.now()}`;
+    
+    // Later, verify nonce hasn't been used
+    if (await db.nonces.exists(nonce)) {
+      throw new Error("Signature replay detected");
+    }
+    ```
+  </Accordion>
+</AccordionGroup>

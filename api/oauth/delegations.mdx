@@ -1,0 +1,323 @@
+---
+title: 'Delegations Endpoints'
+description: 'Manage connector delegation grants for users'
+---
+
+Delegation grants allow users to authorize one app to access another app's resources on their behalf. These endpoints let users view and manage their active connector delegations.
+
+## List Delegations
+
+<api method="GET" endpoint="/api/oauth/delegations" />
+
+Retrieve all connector delegation grants for the authenticated user.
+
+### Authentication
+
+Requires a valid session token in the `Authorization` header:
+
+```
+Authorization: Bearer <session_token>
+```
+
+<Note>
+  This endpoint requires a **session token**, not an OAuth access token. Session tokens are obtained through the login flow.
+</Note>
+
+### Response
+
+<ResponseField name="delegations" type="array">
+  Array of delegation grant objects
+  <Expandable title="delegation object">
+    <ResponseField name="id" type="string">
+      Delegation grant ID
+    </ResponseField>
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 timestamp when the grant was created
+    </ResponseField>
+    <ResponseField name="updatedAt" type="string">
+      ISO 8601 timestamp when the grant was last updated
+    </ResponseField>
+    <ResponseField name="revokedAt" type="string | null">
+      ISO 8601 timestamp when the grant was revoked, or null if active
+    </ResponseField>
+    <ResponseField name="communicationMode" type="string">
+      Communication mode: `user_present` or `background`
+    </ResponseField>
+    <ResponseField name="scope" type="string">
+      Space-separated scopes granted for the target resource
+    </ResponseField>
+    <ResponseField name="sourceAppClientId" type="string">
+      Client ID of the source app (the one accessing the resource)
+    </ResponseField>
+    <ResponseField name="sourceAppName" type="string">
+      Name of the source app
+    </ResponseField>
+    <ResponseField name="sourceAppIconUrl" type="string">
+      Icon URL of the source app
+    </ResponseField>
+    <ResponseField name="sourceAppWebsiteUrl" type="string">
+      Website URL of the source app
+    </ResponseField>
+    <ResponseField name="targetResourceKey" type="string">
+      Resource key of the target resource
+    </ResponseField>
+    <ResponseField name="targetResourceName" type="string">
+      Display name of the target resource
+    </ResponseField>
+    <ResponseField name="targetAudience" type="string">
+      Audience claim for the target resource
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+<CodeGroup>
+```typescript SDK
+import { listDelegations } from '@ave-id/sdk';
+
+const delegations = await listDelegations(
+  { issuer: 'https://aveid.net' },
+  sessionToken
+);
+
+for (const grant of delegations) {
+  console.log(`${grant.sourceAppName} → ${grant.targetResourceName}`);
+  console.log(`Scopes: ${grant.scope}`);
+  console.log(`Mode: ${grant.communicationMode}`);
+}
+```
+
+```typescript Raw
+const response = await fetch('https://api.aveid.net/api/oauth/delegations', {
+  headers: {
+    Authorization: `Bearer ${sessionToken}`,
+  },
+});
+
+const { delegations } = await response.json();
+```
+
+```bash cURL
+curl -X GET 'https://api.aveid.net/api/oauth/delegations' \
+  -H 'Authorization: Bearer sess_abc123...'
+```
+</CodeGroup>
+
+### Example Response
+
+```json
+{
+  "delegations": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "createdAt": "2024-01-15T10:30:00Z",
+      "updatedAt": "2024-01-15T10:30:00Z",
+      "revokedAt": null,
+      "communicationMode": "user_present",
+      "scope": "read write",
+      "sourceAppClientId": "app_source123",
+      "sourceAppName": "Analytics Dashboard",
+      "sourceAppIconUrl": "https://cdn.example.com/analytics-icon.png",
+      "sourceAppWebsiteUrl": "https://analytics.example.com",
+      "targetResourceKey": "crm-api",
+      "targetResourceName": "CRM API",
+      "targetAudience": "https://api.crm.example.com"
+    },
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440001",
+      "createdAt": "2024-01-14T15:20:00Z",
+      "updatedAt": "2024-01-16T09:15:00Z",
+      "revokedAt": null,
+      "communicationMode": "background",
+      "scope": "read notifications",
+      "sourceAppClientId": "app_source456",
+      "sourceAppName": "Notification Service",
+      "sourceAppIconUrl": "https://cdn.example.com/notify-icon.png",
+      "sourceAppWebsiteUrl": "https://notify.example.com",
+      "targetResourceKey": "messaging-api",
+      "targetResourceName": "Messaging API",
+      "targetAudience": "https://api.messaging.example.com"
+    }
+  ]
+}
+```
+
+---
+
+## Revoke Delegation
+
+<api method="DELETE" endpoint="/api/oauth/delegations/:delegationId" />
+
+Revoke a connector delegation grant, preventing the source app from accessing the target resource.
+
+### Authentication
+
+Requires a valid session token in the `Authorization` header.
+
+### Path Parameters
+
+<ParamField path="delegationId" type="string" required>
+  The ID of the delegation grant to revoke
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Returns `true` if revocation was successful
+</ResponseField>
+
+### Example Request
+
+<CodeGroup>
+```typescript SDK
+import { revokeDelegation } from '@ave-id/sdk';
+
+await revokeDelegation(
+  { issuer: 'https://aveid.net' },
+  sessionToken,
+  delegationId
+);
+
+console.log('Delegation revoked successfully');
+```
+
+```typescript Raw
+const response = await fetch(
+  `https://api.aveid.net/api/oauth/delegations/${delegationId}`,
+  {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  }
+);
+
+const result = await response.json();
+```
+
+```bash cURL
+curl -X DELETE 'https://api.aveid.net/api/oauth/delegations/550e8400-e29b-41d4-a716-446655440000' \
+  -H 'Authorization: Bearer sess_abc123...'
+```
+</CodeGroup>
+
+### Example Response
+
+```json
+{
+  "success": true
+}
+```
+
+### Error Response
+
+```json Delegation Not Found
+{
+  "error": "Delegation not found"
+}
+```
+
+---
+
+## Communication Modes
+
+Delegation grants support two communication modes:
+
+<Card title="user_present" icon="user">
+  The source app can only access the target resource when the user is actively present and interacting with the source app. This is more restrictive and suitable for interactive operations.
+</Card>
+
+<Card title="background" icon="clock">
+  The source app can access the target resource in the background, even when the user is not actively using the app. This enables automation and scheduled tasks.
+</Card>
+
+The communication mode is set during the connector authorization flow and included in delegated access tokens.
+
+## Audit Logs
+
+All delegation operations are logged in the audit log:
+
+- **grant_created** - When a new delegation grant is created
+- **grant_revoked** - When a delegation grant is revoked
+- **token_exchanged** - When a delegated token is issued
+
+Audit logs include:
+- Grant ID
+- User ID
+- Source app ID
+- Target resource ID
+- Event details (requested scopes, communication mode, etc.)
+
+## Use Cases
+
+### App Integration Dashboard
+
+Build a settings page where users can see which apps have connector access:
+
+```typescript
+import { listDelegations, revokeDelegation } from '@ave-id/sdk';
+
+function IntegrationsSettings({ sessionToken }) {
+  const [delegations, setDelegations] = useState([]);
+
+  useEffect(() => {
+    async function load() {
+      const grants = await listDelegations({}, sessionToken);
+      setDelegations(grants);
+    }
+    load();
+  }, [sessionToken]);
+
+  async function handleRevoke(id) {
+    await revokeDelegation({}, sessionToken, id);
+    setDelegations(prev => prev.filter(d => d.id !== id));
+  }
+
+  return (
+    <div>
+      <h2>Connected Apps</h2>
+      {delegations.map(grant => (
+        <div key={grant.id}>
+          <img src={grant.sourceAppIconUrl} />
+          <div>
+            <strong>{grant.sourceAppName}</strong>
+            <p>Can access {grant.targetResourceName}</p>
+            <p>Scopes: {grant.scope}</p>
+            <p>Mode: {grant.communicationMode}</p>
+          </div>
+          <button onClick={() => handleRevoke(grant.id)}>
+            Revoke Access
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+### Automatic Cleanup
+
+Revoke all delegations for a specific app:
+
+```typescript
+import { listDelegations, revokeDelegation } from '@ave-id/sdk';
+
+async function revokeAllForApp(sessionToken: string, appClientId: string) {
+  const delegations = await listDelegations({}, sessionToken);
+  
+  const toRevoke = delegations.filter(
+    d => d.sourceAppClientId === appClientId && !d.revokedAt
+  );
+  
+  await Promise.all(
+    toRevoke.map(d => revokeDelegation({}, sessionToken, d.id))
+  );
+  
+  console.log(`Revoked ${toRevoke.length} delegation grants`);
+}
+```
+
+<Note>
+  **Security**: Revoked delegations cannot be restored. Users must go through the connector authorization flow again to re-establish access.
+</Note>

@@ -1,0 +1,254 @@
+---
+title: "Inline iframe"
+description: "Embed Ave authentication directly into your page with mountAveEmbed"
+---
+
+# Inline iframe Embedding
+
+The `mountAveEmbed()` function creates an inline iframe that embeds the Ave authentication flow directly into your page. This is ideal for dedicated sign-in pages where you want seamless integration.
+
+## Basic Usage
+
+```js
+import { mountAveEmbed } from "@ave-id/embed";
+
+const { iframe } = mountAveEmbed({
+  container: document.getElementById("ave-embed"),
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  scope: "openid profile email",
+  onSuccess: ({ redirectUrl }) => {
+    window.location.href = redirectUrl;
+  },
+  onError: (payload) => console.error("Embed error", payload),
+});
+```
+
+## HTML Setup
+
+First, create a container element in your HTML:
+
+```html
+<div id="ave-embed"></div>
+```
+
+The iframe will be mounted inside this container.
+
+## Configuration Options
+
+### Required Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `container` | HTMLElement | DOM element where the iframe will be mounted |
+| `clientId` | string | Your Ave client ID |
+| `redirectUri` | string | OAuth redirect URI for your application |
+
+### Optional Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `scope` | string | `"openid profile email"` | OAuth scopes to request |
+| `issuer` | string | `"https://aveid.net"` | Ave issuer URL |
+| `theme` | string | - | Theme customization |
+| `width` | string \| number | - | iframe width (e.g., "100%" or 400) |
+| `height` | string \| number | - | iframe height (e.g., "600px" or 600) |
+| `onSuccess` | function | - | Success callback |
+| `onError` | function | - | Error callback |
+
+## Examples
+
+### Custom Dimensions
+
+```js
+import { mountAveEmbed } from "@ave-id/embed";
+
+const { iframe } = mountAveEmbed({
+  container: document.getElementById("ave-embed"),
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  width: "100%",
+  height: 600,
+  onSuccess: ({ redirectUrl }) => {
+    window.location.href = redirectUrl;
+  },
+});
+```
+
+### With Theme
+
+```js
+import { mountAveEmbed } from "@ave-id/embed";
+
+const { iframe } = mountAveEmbed({
+  container: document.getElementById("ave-embed"),
+  clientId: "YOUR_CLIENT_ID",
+  redirectUri: "https://yourapp.com/callback",
+  theme: "dark",
+  onSuccess: ({ redirectUrl }) => {
+    window.location.href = redirectUrl;
+  },
+});
+```
+
+### React Integration
+
+```jsx
+import { useEffect, useRef } from "react";
+import { mountAveEmbed } from "@ave-id/embed";
+
+function SignInPage() {
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const { iframe } = mountAveEmbed({
+      container: containerRef.current,
+      clientId: process.env.REACT_APP_AVE_CLIENT_ID,
+      redirectUri: `${window.location.origin}/callback`,
+      scope: "openid profile email",
+      onSuccess: ({ redirectUrl }) => {
+        window.location.href = redirectUrl;
+      },
+      onError: (error) => {
+        console.error("Authentication failed:", error);
+      },
+    });
+
+    // Cleanup on unmount
+    return () => {
+      iframe?.remove();
+    };
+  }, []);
+
+  return (
+    <div>
+      <h1>Sign in with Ave</h1>
+      <div ref={containerRef} />
+    </div>
+  );
+}
+```
+
+### Vue Integration
+
+```vue
+<template>
+  <div>
+    <h1>Sign in with Ave</h1>
+    <div ref="aveContainer"></div>
+  </div>
+</template>
+
+<script>
+import { mountAveEmbed } from "@ave-id/embed";
+
+export default {
+  mounted() {
+    mountAveEmbed({
+      container: this.$refs.aveContainer,
+      clientId: process.env.VUE_APP_AVE_CLIENT_ID,
+      redirectUri: `${window.location.origin}/callback`,
+      scope: "openid profile email",
+      onSuccess: ({ redirectUrl }) => {
+        window.location.href = redirectUrl;
+      },
+      onError: (error) => {
+        console.error("Authentication failed:", error);
+      },
+    });
+  },
+};
+</script>
+```
+
+## Return Value
+
+The `mountAveEmbed()` function returns an object with:
+
+```js
+{
+  iframe: HTMLIFrameElement // The created iframe element
+}
+```
+
+You can use the returned `iframe` reference for advanced manipulation if needed.
+
+## Callbacks
+
+### onSuccess
+
+Called when the user successfully completes authentication:
+
+```js
+onSuccess: ({ redirectUrl }) => {
+  // redirectUrl contains the OAuth callback URL with authorization code
+  window.location.href = redirectUrl;
+}
+```
+
+### onError
+
+Called when an error occurs during the authentication flow:
+
+```js
+onError: (payload) => {
+  console.error("Authentication error:", payload);
+  // Handle error (show message, retry, etc.)
+}
+```
+
+<Note>
+Unlike `openAveSheet()` and `openAvePopup()`, inline iframes do not support the `onClose` callback since the iframe remains embedded in the page.
+</Note>
+
+## Security Considerations
+
+<Warning>
+**Important security notes:**
+
+- Always use HTTPS for your `redirectUri` in production
+- Validate the `redirectUrl` origin before redirecting to prevent open redirects
+- Store your `clientId` securely and avoid hardcoding sensitive values
+- The iframe uses postMessage for communication - ensure your CSP allows this
+</Warning>
+
+## Styling
+
+The iframe is created with minimal default styling. You can style the container element to control positioning:
+
+```css
+#ave-embed {
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+#ave-embed iframe {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+```
+
+## Browser Compatibility
+
+<Note>
+The inline iframe requires:
+- Modern browser with iframe support
+- postMessage API support
+- JavaScript enabled
+
+All modern browsers (Chrome, Firefox, Safari, Edge) are fully supported.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Modal sheet" icon="mobile" href="/embed/modal-sheet">
+    Use a mobile-friendly bottom sheet instead
+  </Card>
+  <Card title="Popup window" icon="window-restore" href="/embed/popup-window">
+    Open authentication in a popup window
+  </Card>
+</CardGroup>

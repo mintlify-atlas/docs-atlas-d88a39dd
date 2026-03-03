@@ -1,0 +1,197 @@
+---
+title: Passkey Management
+description: Add, rename, and remove passkeys for your Ave account
+---
+
+Passkeys are the primary authentication method for your Ave account. You can manage multiple passkeys across different devices for flexible access.
+
+## What Are Passkeys?
+
+Passkeys use WebAuthn technology to authenticate you without passwords:
+
+- **Biometric**: Touch ID, Face ID, or fingerprint sensors
+- **Device PIN**: Your device unlock code as a fallback
+- **Hardware Security**: Keys are stored in secure hardware (TPM, Secure Enclave)
+- **Phishing-Resistant**: Only work on legitimate Ave domains
+
+## Viewing Your Passkeys
+
+To see all your registered passkeys:
+
+<Steps>
+  <Step title="Navigate to Security Settings">
+    Go to **Dashboard** → **Security** from the sidebar.
+  </Step>
+
+  <Step title="View Passkey List">
+    You'll see all your passkeys with:
+    - Passkey name
+    - Device type (single-device or multi-device)
+    - Creation date
+    - Last used timestamp
+  </Step>
+</Steps>
+
+## Adding a New Passkey
+
+Add passkeys for additional devices or browsers:
+
+<Steps>
+  <Step title="Start Adding Passkey">
+    From the Security page, click **Add a new passkey**.
+  </Step>
+
+  <Step title="Authenticate">
+    Your browser will prompt you to create a passkey:
+    
+    - On **iOS/Mac**: Use Touch ID or Face ID
+    - On **Windows**: Use Windows Hello (fingerprint, face, or PIN)
+    - On **Android**: Use fingerprint or device PIN
+    
+    Follow your device's prompts to complete authentication.
+  </Step>
+
+  <Step title="Name Your Passkey">
+    Give your passkey a descriptive name to identify it later, such as:
+    - "MacBook Pro Touch ID"
+    - "iPhone Face ID"
+    - "Windows Desktop"
+    - "Work Laptop"
+    
+    Click **Save** when done.
+  </Step>
+</Steps>
+
+<Note>
+  Your new passkey is immediately active. You can use it to sign in on your next login.
+</Note>
+
+## Renaming a Passkey
+
+Give your passkeys more descriptive names:
+
+<Steps>
+  <Step title="Open Passkey Settings">
+    Navigate to **Dashboard** → **Security**.
+  </Step>
+
+  <Step title="Edit Passkey Name">
+    Click the edit icon next to the passkey you want to rename.
+  </Step>
+
+  <Step title="Save New Name">
+    Enter a new descriptive name and click **Save**.
+  </Step>
+</Steps>
+
+## Removing a Passkey
+
+Delete passkeys you no longer use:
+
+<Steps>
+  <Step title="Select Passkey">
+    From the Security page, find the passkey you want to remove.
+  </Step>
+
+  <Step title="Delete Passkey">
+    Click the delete icon next to the passkey.
+  </Step>
+
+  <Step title="Confirm Deletion">
+    Confirm that you want to remove this passkey.
+    
+    <Warning>
+      You cannot delete your only passkey. You must have at least one passkey to maintain access to your account.
+    </Warning>
+  </Step>
+</Steps>
+
+After deletion, this passkey will no longer work for signing in to your Ave account.
+
+## Passkey Types
+
+### Device-Bound Passkeys
+
+Stored on a specific device:
+
+- **Pros**: Most secure, hardware-protected
+- **Cons**: Only works on that specific device
+- **Examples**: Windows Hello, Android device passkeys
+
+### Synced Passkeys
+
+Synced across devices through your ecosystem:
+
+- **Pros**: Works on multiple devices automatically
+- **Cons**: Depends on your ecosystem (Apple, Google, Microsoft)
+- **Examples**: iCloud Keychain (Apple), Google Password Manager
+
+<Note>
+  Whether your passkey is device-bound or synced depends on your operating system and browser settings, not Ave.
+</Note>
+
+## Passkey Best Practices
+
+### Register Multiple Passkeys
+
+Set up passkeys on different devices:
+
+- Your primary computer
+- Your smartphone
+- A backup device
+
+This ensures you can always access your account even if one device is unavailable.
+
+### Use Descriptive Names
+
+Name passkeys clearly to identify them later:
+
+- ✅ "Personal iPhone 14"
+- ✅ "Work MacBook Pro M2"
+- ❌ "Passkey 1"
+- ❌ "New Passkey"
+
+### Remove Old Passkeys
+
+When you replace or stop using a device:
+
+1. Add a passkey on your new device first
+2. Verify the new passkey works by signing in
+3. Remove the old device's passkey
+
+<Warning>
+  Always add a new passkey before removing your last one. If you delete all passkeys, you'll need to use trust code recovery to regain access.
+</Warning>
+
+## Troubleshooting
+
+### Browser Doesn't Show Passkey Prompt
+
+- Ensure you're using a modern browser (Chrome, Edge, Safari, Firefox)
+- Verify you're on HTTPS or localhost
+- Check that your device supports WebAuthn
+- Try a different browser
+
+### Passkey Not Recognized
+
+If a passkey doesn't work:
+
+- Verify you're using the correct device or browser
+- Check if the passkey was registered on a different browser profile
+- Ensure the passkey hasn't been deleted
+- Try using a trust code instead
+
+### Can't Delete Last Passkey
+
+This is intentional security protection:
+
+- You must have at least one passkey
+- Add a new passkey first
+- Then remove the old one
+
+## Related Topics
+
+- [Account Setup](/guides/account-setup)
+- [Device Management](/guides/device-management)
+- [Security Settings](/guides/security-settings)
+- [Account Recovery](/guides/account-recovery)

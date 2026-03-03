@@ -1,0 +1,310 @@
+---
+title: Security Settings
+description: Manage trust codes and security options for your Ave account
+---
+
+Ave provides multiple security features to protect your account and enable recovery if you lose access to your passkeys.
+
+## Security Overview
+
+Access your security settings:
+
+<Steps>
+  <Step title="Navigate to Security">
+    Go to **Dashboard** → **Security** from the sidebar.
+  </Step>
+
+  <Step title="View Security Summary">
+    You'll see:
+    - All registered passkeys
+    - Number of trust codes remaining
+    - Security activity log
+  </Step>
+</Steps>
+
+## Trust Codes
+
+Trust codes are recovery codes that allow you to regain access to your account without a passkey.
+
+### What Are Trust Codes?
+
+Trust codes are:
+
+- **25-character codes** in the format: `XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`
+- **Generated during registration**: You receive 2 codes initially
+- **Reusable**: You can use the same code multiple times
+- **Encryption keys**: They encrypt your master encryption key for recovery
+
+<Warning>
+  Treat trust codes like passwords. Anyone with a trust code can access your account and decrypt your data.
+</Warning>
+
+### Viewing Trust Codes
+
+You can only view trust codes when they're generated:
+
+- During initial account setup
+- When you regenerate them
+
+<Note>
+  Ave doesn't store your trust codes in plaintext. Once you leave the generation page, you cannot retrieve them. Only hashed versions are stored on Ave's servers.
+</Note>
+
+### Regenerating Trust Codes
+
+Create new trust codes if you:
+
+- Lost your original codes
+- Suspect a code has been compromised
+- Want to rotate security credentials
+
+<Steps>
+  <Step title="Start Regeneration">
+    From the Security page, click **Regenerate trust codes**.
+  </Step>
+
+  <Step title="Confirm Action">
+    Review the warning message:
+    
+    <Warning>
+      Regenerating trust codes will invalidate all existing trust codes. Make sure you have access to your passkeys before proceeding.
+    </Warning>
+    
+    Click **Confirm** to continue.
+  </Step>
+
+  <Step title="Save New Codes">
+    You'll receive 2 new trust codes.
+    
+    **Save them immediately** in a secure location:
+    - Password manager (recommended)
+    - Encrypted note
+    - Physical safe or lockbox
+    
+    Check the box confirming you've saved the codes.
+  </Step>
+
+  <Step title="Finalize">
+    Click **Continue** to complete the process.
+    
+    Your old trust codes are now invalid and only the new codes will work.
+  </Step>
+</Steps>
+
+### When to Use Trust Codes
+
+Use a trust code when:
+
+- You lost access to all your passkeys
+- Your device with your passkey is unavailable
+- You're setting up a new device and can't approve from a trusted device
+- You need to recover your account on a completely new device
+
+### Trust Code Login Flow
+
+<Steps>
+  <Step title="Start Login">
+    Enter your handle on the login page and click **Continue**.
+  </Step>
+
+  <Step title="Select Trust Code Option">
+    Click **Use a trust code**.
+  </Step>
+
+  <Step title="Enter Code">
+    Type or paste your full trust code including dashes:
+    
+    ```
+    XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
+    ```
+    
+    Click **Continue**.
+  </Step>
+
+  <Step title="Sign In">
+    If the code is valid:
+    - Your encrypted master key is retrieved from Ave's servers
+    - The trust code decrypts it locally in your browser
+    - You're signed in and your data is accessible
+  </Step>
+</Steps>
+
+<Note>
+  Trust codes are reusable. Using a trust code doesn't consume it - you can use the same code again later.
+</Note>
+
+## Master Key Recovery
+
+If you sign in with a passkey on a new device but don't have your master encryption key:
+
+<Steps>
+  <Step title="Sign In with Passkey">
+    Use your passkey to authenticate as normal.
+  </Step>
+
+  <Step title="Key Recovery Prompt">
+    Ave detects that your master key isn't stored locally and prompts for recovery.
+  </Step>
+
+  <Step title="Enter Trust Code">
+    Provide one of your trust codes to decrypt your master encryption key.
+  </Step>
+
+  <Step title="Key Restored">
+    Your master key is decrypted and stored locally. You now have full access to your encrypted data.
+  </Step>
+</Steps>
+
+## Passkey Security
+
+Manage your passkeys from the Security page. See the [Passkey Management guide](/guides/passkey-management) for detailed instructions on:
+
+- Adding new passkeys
+- Renaming passkeys
+- Removing old passkeys
+
+## Activity Log
+
+Monitor security-related events in your activity log:
+
+<Steps>
+  <Step title="View Activity">
+    Navigate to **Dashboard** → **Activity Log**.
+  </Step>
+
+  <Step title="Filter Events">
+    Filter by severity to see security events:
+    
+    - **Info**: Normal activities (login, passkey added)
+    - **Warning**: Important events (trust code used, passkey removed)
+    - **Danger**: Critical security events (failed login attempts, suspicious activity)
+  </Step>
+
+  <Step title="Search History">
+    Use the search box to find specific events:
+    - "login"
+    - "passkey"
+    - "trust code"
+    - "device"
+  </Step>
+</Steps>
+
+## Security Questions (Deprecated)
+
+<Note>
+  Security questions have been removed from Ave. Trust codes provide better security and are easier to use for account recovery.
+</Note>
+
+If you have an older account that used security questions:
+
+- They are no longer active
+- Regenerate trust codes to set up modern recovery options
+- Use passkeys and trust codes for authentication and recovery
+
+## Security Best Practices
+
+### Protect Your Trust Codes
+
+✅ **Do:**
+- Store codes in a password manager
+- Keep physical copies in a safe location
+- Share codes only with authorized account recovery contacts
+- Regenerate codes if you suspect compromise
+
+❌ **Don't:**
+- Store codes in plain text files
+- Email codes to yourself
+- Share codes on messaging apps
+- Take screenshots visible in cloud photo backups
+
+### Maintain Multiple Authentication Methods
+
+Ensure you always have access:
+
+1. **Primary**: Multiple passkeys on different devices
+2. **Backup**: Trust codes stored securely offline
+3. **Tertiary**: Approved trusted devices that can approve new logins
+
+### Regular Security Checkups
+
+Monthly security review:
+
+- ✓ Verify all passkeys are ones you recognize
+- ✓ Check device list for unfamiliar entries
+- ✓ Review recent activity log for suspicious events
+- ✓ Confirm trust codes are still accessible
+- ✓ Remove any unused passkeys or devices
+
+### Enable Additional Security
+
+Consider these practices:
+
+- Use unique passkeys per device (don't rely only on synced passkeys)
+- Keep trust codes completely separate from your devices
+- Regularly review login requests for suspicious activity
+- Enable push notifications for login attempts
+
+## Encryption Details
+
+### End-to-End Encryption
+
+Ave uses E2EE to protect your data:
+
+- **Master Key**: Generated locally in your browser, never sent to servers
+- **Trust Code Encryption**: Your master key is encrypted with your trust codes
+- **Zero-Knowledge**: Ave cannot decrypt your data or access your keys
+
+### What Ave Can See
+
+Ave's servers store:
+
+- ✅ Encrypted master key backups (encrypted with trust codes)
+- ✅ Hashed trust codes (cannot be reversed to original codes)
+- ✅ Passkey public keys (standard WebAuthn, cannot decrypt data)
+- ✅ Session tokens (for authentication, not encryption)
+- ✅ Device metadata (names, types, browsers, IPs)
+
+Ave's servers **cannot** see:
+
+- ❌ Your master encryption key in plaintext
+- ❌ Your actual trust codes
+- ❌ Your decrypted user data
+- ❌ Your passkey private keys (stored in device hardware)
+
+## Troubleshooting
+
+### Trust Code Not Working
+
+If your trust code is rejected:
+
+- Verify you're entering the code exactly as shown, including dashes
+- Check for typos or extra spaces
+- Ensure you haven't regenerated codes since receiving this one
+- Try a different trust code if you have multiple
+
+### Lost All Trust Codes
+
+If you lost access to all trust codes:
+
+- Sign in with a passkey on a device that still has your master key
+- Regenerate trust codes from the Security page
+- Save the new codes securely
+
+### Can't Access Any Authentication Method
+
+If you lost both passkeys and trust codes:
+
+- Check if you have any trusted devices still signed in
+- Look for synced passkeys in your cloud keychain (iCloud, Google)
+- Contact Ave support for account recovery options
+
+<Warning>
+  Without passkeys or trust codes, account recovery may not be possible due to end-to-end encryption. Always maintain backup access methods.
+</Warning>
+
+## Related Topics
+
+- [Account Setup](/guides/account-setup)
+- [Passkey Management](/guides/passkey-management)
+- [Device Management](/guides/device-management)
+- [Account Recovery](/guides/account-recovery)
