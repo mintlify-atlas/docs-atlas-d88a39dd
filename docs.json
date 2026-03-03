@@ -129,6 +129,13 @@
               "api/apps",
               "api/push"
             ]
+          },
+          {
+            "group": "User Data",
+            "pages": [
+              "api/mydata",
+              "api/upload"
+            ]
           }
         ]
       },

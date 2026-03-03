@@ -1,0 +1,300 @@
+---
+title: Upload
+description: Upload and manage avatar and banner images
+---
+
+Endpoints for uploading and managing identity profile images stored in Cloudflare R2.
+
+## Upload avatar
+
+<ParamField path="POST /api/upload/avatar" type="endpoint">
+  Upload an avatar image for an identity
+</ParamField>
+
+Upload an avatar image that will be stored in Cloudflare R2 and associated with the specified identity.
+
+**Authentication:** Required (session token)
+
+**Content-Type:** `multipart/form-data`
+
+### Request Parameters
+
+<ParamField body="file" type="File" required>
+  Image file to upload
+  
+  **Accepted formats:** JPEG, PNG, GIF, WebP  
+  **Maximum size:** 5MB
+</ParamField>
+
+<ParamField body="identityId" type="string" required>
+  ID of the identity to update
+</ParamField>
+
+### Response
+
+<ResponseField name="avatarUrl" type="string">
+  Public URL of the uploaded avatar image
+</ResponseField>
+
+### Example
+
+```javascript
+const formData = new FormData();
+formData.append('file', avatarFile);
+formData.append('identityId', 'identity_abc123');
+
+const response = await fetch('https://api.aveid.net/api/upload/avatar', {
+  method: 'POST',
+  body: formData,
+  credentials: 'include'
+});
+
+const { avatarUrl } = await response.json();
+console.log('Avatar URL:', avatarUrl);
+```
+
+**Response:**
+```json
+{
+  "avatarUrl": "https://cdn.aveid.net/avatars/1234567890-abc123.png"
+}
+```
+
+### Behavior
+
+- Automatically deletes the previous avatar if one exists
+- Generates a unique filename with timestamp and random string
+- Stores in R2 bucket under `avatars/` prefix
+- Sets 1-year cache control header
+- Logs `avatar_updated` activity
+
+### Error Responses
+
+<CodeGroup>
+```json No file provided
+{
+  "error": "No file provided"
+}
+```
+
+```json Invalid file type
+{
+  "error": "Invalid file type. Allowed: JPEG, PNG, GIF, WebP"
+}
+```
+
+```json File too large
+{
+  "error": "File too large. Maximum size: 5MB"
+}
+```
+
+```json Identity not found
+{
+  "error": "Identity not found"
+}
+```
+
+```json R2 configuration incomplete
+{
+  "error": "R2 configuration is incomplete"
+}
+```
+</CodeGroup>
+
+## Upload banner
+
+<ParamField path="POST /api/upload/banner" type="endpoint">
+  Upload a banner image for an identity
+</ParamField>
+
+Upload a banner image that will be stored in Cloudflare R2 and associated with the specified identity.
+
+**Authentication:** Required (session token)
+
+**Content-Type:** `multipart/form-data`
+
+### Request Parameters
+
+<ParamField body="file" type="File" required>
+  Image file to upload
+  
+  **Accepted formats:** JPEG, PNG, GIF, WebP  
+  **Maximum size:** 10MB
+</ParamField>
+
+<ParamField body="identityId" type="string" required>
+  ID of the identity to update
+</ParamField>
+
+### Response
+
+<ResponseField name="bannerUrl" type="string">
+  Public URL of the uploaded banner image
+</ResponseField>
+
+### Example
+
+```javascript
+const formData = new FormData();
+formData.append('file', bannerFile);
+formData.append('identityId', 'identity_abc123');
+
+const response = await fetch('https://api.aveid.net/api/upload/banner', {
+  method: 'POST',
+  body: formData,
+  credentials: 'include'
+});
+
+const { bannerUrl } = await response.json();
+console.log('Banner URL:', bannerUrl);
+```
+
+**Response:**
+```json
+{
+  "bannerUrl": "https://cdn.aveid.net/banners/1234567890-xyz789.jpg"
+}
+```
+
+### Behavior
+
+- Automatically deletes the previous banner if it's an image URL (not a color code)
+- Generates a unique filename with timestamp and random string
+- Stores in R2 bucket under `banners/` prefix
+- Sets 1-year cache control header
+- Logs `banner_updated` activity
+
+## Delete avatar
+
+<ParamField path="DELETE /api/upload/avatar/:identityId" type="endpoint">
+  Remove the avatar from an identity
+</ParamField>
+
+Delete the avatar image from R2 storage and remove the URL from the identity record.
+
+**Authentication:** Required (session token)
+
+### Path Parameters
+
+<ParamField path="identityId" type="string" required>
+  ID of the identity
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Always `true` if deletion succeeds
+</ResponseField>
+
+### Example
+
+```bash
+curl -X DELETE https://api.aveid.net/api/upload/avatar/identity_abc123 \
+  -H "Cookie: ave_session=YOUR_SESSION_TOKEN"
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+## Delete banner
+
+<ParamField path="DELETE /api/upload/banner/:identityId" type="endpoint">
+  Remove the banner from an identity
+</ParamField>
+
+Delete the banner image from R2 storage and remove the URL from the identity record. Only deletes image files, not color codes.
+
+**Authentication:** Required (session token)
+
+### Path Parameters
+
+<ParamField path="identityId" type="string" required>
+  ID of the identity
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Always `true` if deletion succeeds
+</ResponseField>
+
+### Example
+
+```bash
+curl -X DELETE https://api.aveid.net/api/upload/banner/identity_abc123 \
+  -H "Cookie: ave_session=YOUR_SESSION_TOKEN"
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+## Configuration
+
+The upload endpoints require the following environment variables to be configured:
+
+<ParamField query="R2_ACCOUNT_ID" type="string" required>
+  Cloudflare R2 account ID
+</ParamField>
+
+<ParamField query="R2_ACCESS_KEY_ID" type="string" required>
+  R2 access key ID
+</ParamField>
+
+<ParamField query="R2_SECRET_ACCESS_KEY" type="string" required>
+  R2 secret access key
+</ParamField>
+
+<ParamField query="R2_BUCKET_NAME" type="string">
+  R2 bucket name (defaults to "ave-uploads")
+</ParamField>
+
+<ParamField query="R2_PUBLIC_URL" type="string" required>
+  Public URL for accessing uploaded files
+</ParamField>
+
+## File Specifications
+
+### Avatar Images
+- **Formats:** JPEG, PNG, GIF, WebP
+- **Maximum size:** 5MB
+- **Storage path:** `avatars/{timestamp}-{random}.{ext}`
+- **Cache:** 1 year (`max-age=31536000`)
+
+### Banner Images
+- **Formats:** JPEG, PNG, GIF, WebP
+- **Maximum size:** 10MB
+- **Storage path:** `banners/{timestamp}-{random}.{ext}`
+- **Cache:** 1 year (`max-age=31536000`)
+
+<Note>
+  Banner URLs can also be color codes (starting with `#`) instead of image URLs. The delete endpoint only removes actual image files, not color codes.
+</Note>
+
+## Security
+
+- **Authentication required:** All endpoints require valid session authentication
+- **Identity ownership:** Users can only upload to identities they own
+- **File type validation:** Only allows JPEG, PNG, GIF, and WebP images
+- **Size limits:** 5MB for avatars, 10MB for banners
+- **Automatic cleanup:** Old images are deleted when replaced
+- **Activity logging:** All uploads and deletions are logged
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Identities" icon="id-card" href="/api/identities">
+    Manage identity information
+  </Card>
+  <Card title="Activity log" icon="list" href="/api/activity">
+    View upload activity
+  </Card>
+</CardGroup>
