@@ -1,0 +1,183 @@
+{
+  "projectType": "saas",
+  "projectName": "Ave",
+  "projectDescription": "Passwordless identity platform with end-to-end encryption, WebAuthn passkeys, and OAuth/OIDC provider capabilities",
+  "theme": "aspen",
+  "primaryColor": "#6366f1",
+  "lightColor": "#818cf8",
+  "darkColor": "#4f46e5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "how-it-works"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/passwordless-auth",
+              "features/end-to-end-encryption",
+              "features/multi-device-login",
+              "features/oauth-provider",
+              "features/digital-signing"
+            ]
+          },
+          {
+            "group": "User Guides",
+            "pages": [
+              "guides/account-setup",
+              "guides/passkey-management",
+              "guides/device-management",
+              "guides/security-settings",
+              "guides/account-recovery"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integration",
+        "groups": [
+          {
+            "group": "SDK",
+            "pages": [
+              "sdk/installation",
+              "sdk/oauth-flow",
+              "sdk/client-helpers",
+              "sdk/server-helpers",
+              "sdk/signing-api"
+            ]
+          },
+          {
+            "group": "Embed",
+            "pages": [
+              "embed/overview",
+              "embed/inline-iframe",
+              "embed/modal-sheet",
+              "embed/popup-window",
+              "embed/connector-flow"
+            ]
+          },
+          {
+            "group": "OAuth & OIDC",
+            "pages": [
+              "oauth/getting-started",
+              "oauth/authorization-flow",
+              "oauth/token-exchange",
+              "oauth/delegated-tokens",
+              "oauth/scopes"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/register",
+              "api/login",
+              "api/devices"
+            ]
+          },
+          {
+            "group": "Identity",
+            "pages": [
+              "api/identities",
+              "api/security",
+              "api/activity"
+            ]
+          },
+          {
+            "group": "OAuth",
+            "pages": [
+              "api/oauth/token",
+              "api/oauth/userinfo",
+              "api/oauth/delegations"
+            ]
+          },
+          {
+            "group": "Signing",
+            "pages": [
+              "api/signing/request",
+              "api/signing/status",
+              "api/signing/verify"
+            ]
+          },
+          {
+            "group": "Applications",
+            "pages": [
+              "api/apps",
+              "api/push"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Security",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "security/overview",
+              "security/webauthn",
+              "security/encryption-model",
+              "security/key-management"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "security/trust-codes",
+              "security/recovery-methods",
+              "security/session-management",
+              "security/best-practices"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "WebAuthn passkey authentication with biometrics",
+    "End-to-end encryption with client-side master keys",
+    "Multi-device login with approval flow",
+    "OAuth 2.0 and OpenID Connect provider",
+    "Digital signature requests and verification",
+    "Account recovery via trust codes or security questions",
+    "Delegated token exchange for app-to-app communication",
+    "Real-time WebSocket notifications",
+    "Mobile and web applications",
+    "Embedded login components"
+  ],
+  "publicApiSurface": [
+    "buildAuthorizeUrl()",
+    "exchangeCode()",
+    "refreshToken()",
+    "fetchUserInfo()",
+    "createSignatureRequest()",
+    "verifySignature()",
+    "getPublicKey()",
+    "exchangeDelegatedToken()",
+    "listDelegations()",
+    "revokeDelegation()",
+    "mountAveEmbed()",
+    "openAveSheet()",
+    "openAvePopup()",
+    "startPkceLogin()",
+    "exchangeCodeServer()",
+    "POST /api/oauth/token",
+    "GET /api/oauth/userinfo",
+    "POST /api/signing/request",
+    "GET /api/signing/request/:id/status",
+    "POST /api/signing/verify",
+    "GET /.well-known/openid-configuration"
+  ]
+}
